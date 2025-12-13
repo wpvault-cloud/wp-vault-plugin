@@ -1,0 +1,42 @@
+/* WP Vault Admin Styles */
+.wpv-dashboard {
+    max-width: 1200px;
+}
+
+.wpv-actions {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    padding: 20px;
+    border-radius: 4px;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+}
+
+.wpv-actions button {
+    height: 40px;
+}
+
+.wpv-actions .dashicons {
+    margin-top: 6px;
+    margin-right: 5px;
+}
+
+.wpv-tab-content {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-top: none;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.storage-config {
+    background: #f9f9f9;
+    border: 1px solid #e5e5e5;
+    padding: 15px;
+    margin-top: 10px;
+    border-radius: 4px;
+}
+
+#test-result {
+    margin-left: 10px;
+    font-weight: 600;
+}

@@ -1,0 +1,92 @@
+# WordPress
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+logs/
+error_log
+debug.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.cache
+
+# Dependencies (if using Composer)
+/vendor/
+composer.lock
+
+# Node modules (if using npm/yarn)
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Build files
+dist/
+build/
+*.min.js
+*.min.css
+
+# Environment files
+.env
+.env.local
+.env.*.local
+config.local.php
+
+# Backup files
+*.sql
+*.sql.gz
+*.zip
+*.tar
+*.tar.gz
+backups/
+*.backup
+
+# WordPress specific
+wp-config.php
+.htaccess
+
+# Testing
+phpunit.xml
+tests/_output/
+coverage/
+.phpunit.result.cache
+
+# Documentation builds
+docs/_build/
+site/
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini

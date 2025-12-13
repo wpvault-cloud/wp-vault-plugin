@@ -1,0 +1,54 @@
+PROPRIETARY LICENSE
+
+Copyright (c) 2024 WP Vault. All rights reserved.
+
+This software and associated documentation files (the "Software") are the proprietary 
+and confidential property of WP Vault. 
+
+TERMS AND CONDITIONS:
+
+1. PROPRIETARY RIGHTS
+   The Software is protected by copyright laws and international copyright treaties, 
+   as well as other intellectual property laws and treaties. All rights, title, and 
+   interest in and to the Software remain with WP Vault.
+
+2. RESTRICTIONS
+   You may NOT:
+   - Copy, duplicate, or reproduce the Software in whole or in part
+   - Modify, adapt, or create derivative works based on the Software for commercial purposes
+   - Sell, rent, lease, sublicense, or otherwise transfer the Software or any rights 
+     therein to any third party
+   - Remove or alter any proprietary notices, labels, or marks on the Software
+   - Use the Software to create a competing product or service
+   - Reverse engineer, decompile, or disassemble the Software
+
+3. CONTRIBUTIONS
+   WP Vault welcomes contributions to improve the Software. By submitting a pull request 
+   or contributing code, you agree that:
+   - Your contributions will be licensed under this same proprietary license
+   - WP Vault may use, modify, and distribute your contributions as part of the Software
+   - You grant WP Vault a perpetual, worldwide, non-exclusive, royalty-free license to 
+     use your contributions
+
+4. PERMITTED USE
+   You may:
+   - Use the Software for your own WordPress sites
+   - Review the source code for learning and understanding purposes
+   - Submit bug reports, feature requests, and pull requests
+   - Fork the repository for personal use and development
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
+   PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL WP VAULT BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. TERMINATION
+   This license is effective until terminated. Your rights under this license will 
+   terminate automatically without notice if you fail to comply with any of its terms.
+
+For licensing inquiries or commercial use requests, please contact: licensing@wpvault.io
