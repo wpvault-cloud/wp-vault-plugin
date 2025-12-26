@@ -8,8 +8,8 @@
 
 [![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://www.php.net/)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/wpvault/wp-vault-plugin)
+[![License](https://img.shields.io/badge/License-GPLv2%2B-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/wpvault-cloud/wp-vault-plugin)
 
 [Features](#-features) • [Installation](#-installation) • [Documentation](#-documentation) • [Contributing](#-contributing) • [Support](#-support)
 
@@ -109,7 +109,7 @@ WP Vault is a comprehensive backup and optimization solution designed specifical
 
 ### Method 1: WordPress Admin (Recommended)
 
-1. Download the latest release from [GitHub Releases](https://github.com/wpvault/wp-vault-plugin/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/wpvault-cloud/wp-vault-plugin/releases)
 2. Go to **Plugins → Add New → Upload Plugin**
 3. Choose the downloaded ZIP file
 4. Click **Install Now**
@@ -123,7 +123,7 @@ WP Vault is a comprehensive backup and optimization solution designed specifical
 
 ```bash
 cd wp-content/plugins
-git clone https://github.com/wpvault/wp-vault-plugin.git wp-vault
+git clone https://github.com/wpvault-cloud/wp-vault-plugin.git wp-vault
 ```
 
 ### Method 3: Composer (For Developers)
@@ -321,7 +321,7 @@ We welcome contributions from the community! Here's how you can help:
 1. **Fork the Repository**
 
    ```bash
-   git clone https://github.com/wpvault/wp-vault-plugin.git
+   git clone https://github.com/wpvault-cloud/wp-vault-plugin.git
    cd wp-vault-plugin
    ```
 
@@ -364,7 +364,7 @@ phpcs --standard=WordPress .
 
 ### Reporting Issues
 
-Found a bug? Please [open an issue](https://github.com/wpvault/wp-vault-plugin/issues) with:
+Found a bug? Please [open an issue](https://github.com/wpvault-cloud/wp-vault-plugin/issues) with:
 
 - WordPress version
 - PHP version
@@ -391,29 +391,27 @@ Found a bug? Please [open an issue](https://github.com/wpvault/wp-vault-plugin/i
 
 ### Get Help
 
-- **Documentation**: [docs.wpvault.io](https://docs.wpvault.io)
-- **GitHub Issues**: [Report a Bug](https://github.com/wpvault/wp-vault-plugin/issues)
-- **Email Support**: support@wpvault.io
-- **Community Forum**: [forum.wpvault.io](https://forum.wpvault.io)
+- **Documentation**: [docs.wpvault.cloud](https://docs.wpvault.cloud)
+- **GitHub Issues**: [Report a Bug](https://github.com/wpvault-cloud/wp-vault-plugin/issues)
+- **Email Support**: support@wpvault.cloud
+- **Community Forum**: [forum.wpvault.cloud](https://forum.wpvault.cloud)
 
 ### Commercial Support
 
 For priority support, custom development, or enterprise licensing, please contact:
 
-- **Email**: enterprise@wpvault.io
-- **Website**: [wpvault.io/enterprise](https://wpvault.io/enterprise)
+- **Email**: enterprise@wpvault.cloud
+- **Website**: [wpvault.cloud/enterprise](https://wpvault.cloud/enterprise)
 
 ## 📄 License
 
-This software is proprietary and confidential. All rights reserved.
+This software is licensed under the GPLv2 or later license.
 
 Copyright (c) 2024 WP Vault
 
-**Important**: This software is protected by copyright laws. You may not copy, duplicate, or sell this software without explicit permission from WP Vault. However, we welcome contributions through pull requests.
-
 See [LICENSE](LICENSE) file for full terms and conditions.
 
-For licensing inquiries: licensing@wpvault.io
+For licensing inquiries: licensing@wpvault.cloud
 
 ## 🙏 Acknowledgments
 
@@ -423,10 +421,10 @@ For licensing inquiries: licensing@wpvault.io
 
 ## 🔗 Links
 
-- **Website**: [wpvault.io](https://wpvault.io)
-- **Documentation**: [docs.wpvault.io](https://docs.wpvault.io)
-- **GitHub**: [github.com/wpvault/wp-vault-plugin](https://github.com/wpvault/wp-vault-plugin)
-- **Support**: [support.wpvault.io](https://support.wpvault.io)
+- **Website**: [wpvault.cloud](https://wpvault.cloud)
+- **Documentation**: [docs.wpvault.cloud](https://docs.wpvault.cloud)
+- **GitHub**: [github.com/wpvault-cloud/wp-vault-plugin](https://github.com/wpvault-cloud/wp-vault-plugin)
+- **Support**: [support.wpvault.cloud](https://support.wpvault.cloud)
 
 ---
 
@@ -434,6 +432,6 @@ For licensing inquiries: licensing@wpvault.io
 
 **Made with ❤️ by the WP Vault Team**
 
-[⭐ Star us on GitHub](https://github.com/wpvault/wp-vault-plugin) • [🐛 Report Bug](https://github.com/wpvault/wp-vault-plugin/issues) • [💡 Request Feature](https://github.com/wpvault/wp-vault-plugin/issues)
+[⭐ Star us on GitHub](https://github.com/wpvault-cloud/wp-vault-plugin) • [🐛 Report Bug](https://github.com/wpvault-cloud/wp-vault-plugin/issues) • [💡 Request Feature](https://github.com/wpvault-cloud/wp-vault-plugin/issues)
 
 </div>

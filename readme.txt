@@ -1,12 +1,12 @@
 === WP Vault ===
 Contributors: wpvault
-Tags: backup, restore, cloud storage, s3, google drive, optimization
+Tags: backup, restore, cloud storage, s3, google drive
 Requires at least: 5.8
 Tested up to: 6.4
 Requires PHP: 7.4
 Stable tag: 1.0.0
-License: Proprietary
-License URI: https://github.com/wpvault/wp-vault-plugin/blob/main/LICENSE
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 Ultimate WordPress backup and optimization platform with multi-storage support.
 

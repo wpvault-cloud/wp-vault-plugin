@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name: WP Vault
- * Plugin URI: https://wpvault.io
+ * Plugin URI: https://wpvault.cloud
  * Description: Ultimate WordPress backup and optimization platform with multi-storage support
  * Version: 1.0.0
  * Author: WP Vault
- * Author URI: https://wpvault.io
- * License: Proprietary
- * License URI: https://github.com/wpvault/wp-vault-plugin/blob/main/LICENSE
+ * Author URI: https://wpvault.cloud
+ * License: GPLv2 or later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: wp-vault
  * Domain Path: /languages
  * Requires at least: 5.8
@@ -25,6 +25,14 @@ define('WP_VAULT_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WP_VAULT_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WP_VAULT_PLUGIN_FILE', __FILE__);
 
+// Incremental backup constants
+define('WPV_TIME_BUDGET', 15);              // seconds per run
+define('WPV_MAX_BYTES_PER_RUN', 200 * 1024 * 1024);  // 200MB hashing budget
+define('WPV_FINGERPRINT_BYTES', 64 * 1024); // 64KB
+define('WPV_FULL_HASH_LIMIT', 50 * 1024 * 1024);     // 50MB max file size for full hash
+define('WPV_UPLOAD_CHUNK_SIZE', 200 * 1024 * 1024);  // 200MB
+define('WPV_MAX_FILES_PER_RUN', 200);
+
 // Autoloader
 spl_autoload_register(function ($class) {
     $prefix = 'WP_Vault\\';
@@ -36,7 +44,7 @@ spl_autoload_register(function ($class) {
     }
 
     $relative_class = substr($class, $len);
-    $file = $base_dir . 'class-' . str_replace('\\', '-', strtolower($relative_class)) . '.php';
+    $file = $base_dir . 'class-' . str_replace(array('\\', '_'), '-', strtolower($relative_class)) . '.php';
 
     if (file_exists($file)) {
         require $file;

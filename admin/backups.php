@@ -10,9 +10,16 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Get local backup files (grouped by backup_id)
+require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+
+// Get backups from SaaS API
+$api = new \WP_Vault\WP_Vault_API();
+$backups_result = $api->get_backups();
+$saas_backups = $backups_result['success'] ? $backups_result['data']['backups'] : array();
+
+// Get local backup files (grouped by backup_id) - for legacy/full backups
 $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
-$backups = array();
+$local_backups = array();
 $backups_by_id = array();
 
 if (is_dir($backup_dir)) {
@@ -41,6 +48,79 @@ if (is_dir($backup_dir)) {
                 }
             }
 
+            // Transform components to expected format
+            $components = array();
+            if (isset($manifest_data['components'])) {
+                $manifest_components = $manifest_data['components'];
+
+                // Handle different manifest formats
+                if (is_array($manifest_components)) {
+                    // Check if it's an associative array (old format: {"themes": ["file1"], "plugins": ["file2"]})
+                    if (
+                        isset($manifest_components['themes']) || isset($manifest_components['plugins']) ||
+                        isset($manifest_components['uploads']) || isset($manifest_components['wp-content']) ||
+                        isset($manifest_components['database'])
+                    ) {
+                        // Old format: transform to new format
+                        foreach ($manifest_components as $component_name => $component_files) {
+                            if (is_array($component_files)) {
+                                $component_archives = array();
+                                foreach ($component_files as $file) {
+                                    // File might be a string (filename) or array with filename
+                                    $filename = is_array($file) ? (isset($file['filename']) ? $file['filename'] : '') : $file;
+                                    if (!empty($filename)) {
+                                        $component_archives[] = $filename;
+                                    }
+                                }
+                                if (!empty($component_archives)) {
+                                    $components[] = array(
+                                        'name' => $component_name,
+                                        'archives' => $component_archives
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        // New format: array of component objects
+                        foreach ($manifest_components as $comp) {
+                            if (is_array($comp) && isset($comp['name'])) {
+                                $components[] = $comp;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If no components found but we have multiple files, try to infer from filenames
+            if (empty($components) && count($actual_files) > 1) {
+                $component_map = array(
+                    'themes' => array(),
+                    'plugins' => array(),
+                    'uploads' => array(),
+                    'wp-content' => array(),
+                    'database' => array()
+                );
+
+                foreach ($actual_files as $file) {
+                    $filename = $file['filename'];
+                    if (preg_match('/^(themes|plugins|uploads|wp-content|database)-/', $filename, $matches)) {
+                        $component_name = $matches[1];
+                        if (isset($component_map[$component_name])) {
+                            $component_map[$component_name][] = $filename;
+                        }
+                    }
+                }
+
+                foreach ($component_map as $component_name => $archives) {
+                    if (!empty($archives)) {
+                        $components[] = array(
+                            'name' => $component_name,
+                            'archives' => $archives
+                        );
+                    }
+                }
+            }
+
             $backups_by_id[$backup_id] = array(
                 'backup_id' => $backup_id,
                 'backup_type' => isset($manifest_data['backup_type']) ? $manifest_data['backup_type'] : 'full',
@@ -48,20 +128,77 @@ if (is_dir($backup_dir)) {
                 'total_size' => $actual_total_size > 0 ? $actual_total_size : (isset($manifest_data['total_size']) ? $manifest_data['total_size'] : 0),
                 'created_at' => isset($manifest_data['created_at']) ? $manifest_data['created_at'] : date('Y-m-d H:i:s', filemtime($manifest_file)),
                 'date' => filemtime($manifest_file),
-                'components' => isset($manifest_data['components']) ? $manifest_data['components'] : array(),
+                'components' => $components,
                 'files' => $actual_files,
                 'manifest_file' => basename($manifest_file),
             );
         }
     }
 
-    // Also check for legacy single-file backups (without manifest)
+    // Also check for component files that might not be in manifest
+    // Look for component files with backup_id pattern: component-backupid-*.tar.gz
+    $component_files = glob($backup_dir . '{database,themes,plugins,uploads,wp-content}-*.tar.gz', GLOB_BRACE);
+    foreach ($component_files as $file) {
+        $filename = basename($file);
+        // Extract backup_id from component filename: component-backupid-timestamp.tar.gz
+        if (preg_match('/^(database|themes|plugins|uploads|wp-content)-([a-zA-Z0-9_-]+)-/', $filename, $matches)) {
+            $component_name = $matches[1];
+            $backup_id = $matches[2];
+
+            // Initialize backup entry if not exists
+            if (!isset($backups_by_id[$backup_id])) {
+                $backups_by_id[$backup_id] = array(
+                    'backup_id' => $backup_id,
+                    'backup_type' => 'full',
+                    'compression_mode' => 'fast',
+                    'total_size' => 0,
+                    'created_at' => date('Y-m-d H:i:s', filemtime($file)),
+                    'date' => filemtime($file),
+                    'components' => array(),
+                    'files' => array(),
+                    'manifest_file' => null,
+                );
+            }
+
+            // Add component to backup
+            $backup_entry = &$backups_by_id[$backup_id];
+            $file_size = filesize($file);
+            $backup_entry['total_size'] += $file_size;
+
+            // Find or create component entry
+            $component_found = false;
+            foreach ($backup_entry['components'] as &$comp) {
+                if (isset($comp['name']) && $comp['name'] === $component_name) {
+                    $comp['archives'][] = $filename;
+                    $component_found = true;
+                    break;
+                }
+            }
+
+            if (!$component_found) {
+                $backup_entry['components'][] = array(
+                    'name' => $component_name,
+                    'archives' => array($filename)
+                );
+            }
+
+            // Add to files array
+            $backup_entry['files'][] = array(
+                'filename' => $filename,
+                'path' => $file,
+                'size' => $file_size,
+                'component' => $component_name,
+            );
+        }
+    }
+
+    // Also check for legacy single-file backups (without manifest and without components)
     $legacy_files = glob($backup_dir . 'backup-*.tar.gz');
     foreach ($legacy_files as $file) {
         $filename = basename($file);
         // Skip if this is a component file (has component prefix)
         if (preg_match('/^(database|themes|plugins|uploads|wp-content)-/', $filename)) {
-            continue; // Already handled by manifest
+            continue; // Already handled above
         }
 
         // Extract backup_id from filename
@@ -90,11 +227,142 @@ if (is_dir($backup_dir)) {
     }
 
     // Convert to array and sort by date
-    $backups = array_values($backups_by_id);
-    usort($backups, function ($a, $b) {
+    $local_backups = array_values($backups_by_id);
+    usort($local_backups, function ($a, $b) {
         return $b['date'] - $a['date'];
     });
 }
+
+// Merge SaaS backups with local backups
+// SaaS backups take precedence (they're the source of truth)
+$all_backups = array();
+$saas_backup_ids = array();
+
+// Add SaaS backups first
+foreach ($saas_backups as $backup) {
+    $backup_id = $backup['id'];
+    $saas_backup_ids[] = $backup_id;
+
+    // Parse components from API response
+    $components = array();
+    $files = array();
+
+    // Use components if already parsed by API
+    if (isset($backup['components']) && is_array($backup['components']) && !empty($backup['components'])) {
+        foreach ($backup['components'] as $comp) {
+            $component_name = isset($comp['name']) ? $comp['name'] : '';
+            $component_objects = isset($comp['objects']) ? $comp['objects'] : array();
+
+            if (empty($component_objects)) {
+                continue;
+            }
+
+            $component_archives = array();
+            foreach ($component_objects as $obj) {
+                $object_key = isset($obj['key']) ? $obj['key'] : '';
+                $object_size = isset($obj['size']) ? $obj['size'] : 0;
+
+                // Extract filename from object key
+                $filename = basename($object_key);
+                if (empty($filename)) {
+                    $filename = $component_name . '.tar.gz';
+                }
+
+                $component_archives[] = $object_key;
+                $files[] = array(
+                    'filename' => $filename,
+                    'path' => $object_key, // GCS object key
+                    'size' => $object_size,
+                    'component' => $component_name,
+                    'is_cloud' => true
+                );
+            }
+
+            if (!empty($component_archives)) {
+                $components[] = array(
+                    'name' => $component_name,
+                    'archives' => $component_archives,
+                    'objects' => $component_objects, // Keep objects for display
+                    'total_size' => isset($comp['total_size']) ? $comp['total_size'] : 0
+                );
+            }
+        }
+    } elseif (isset($backup['manifest'])) {
+        // Fallback: parse manifest if components not already parsed
+        $manifest_data = is_string($backup['manifest']) ? json_decode($backup['manifest'], true) : $backup['manifest'];
+        if ($manifest_data && isset($manifest_data['components'])) {
+            foreach ($manifest_data['components'] as $component_name => $objects) {
+                if (is_array($objects) && !empty($objects)) {
+                    $component_archives = array();
+                    foreach ($objects as $obj) {
+                        $object_key = isset($obj['key']) ? $obj['key'] : '';
+                        $component_archives[] = $object_key;
+                        $files[] = array(
+                            'filename' => basename($object_key) ?: $component_name . '.tar.gz',
+                            'path' => $object_key,
+                            'size' => isset($obj['size']) ? $obj['size'] : 0,
+                            'component' => $component_name,
+                            'is_cloud' => true
+                        );
+                    }
+                    if (!empty($component_archives)) {
+                        $components[] = array(
+                            'name' => $component_name,
+                            'archives' => $component_archives,
+                            'objects' => $objects // Keep objects for display
+                        );
+                    }
+                }
+            }
+        }
+
+        // Add database if present
+        if (isset($manifest_data['db'])) {
+            $db_key = isset($manifest_data['db']['key']) ? $manifest_data['db']['key'] : '';
+            $db_size = isset($manifest_data['db']['size']) ? $manifest_data['db']['size'] : 0;
+            $components[] = array(
+                'name' => 'database',
+                'archives' => array($db_key),
+                'objects' => array($manifest_data['db']) // Keep object for display
+            );
+            $files[] = array(
+                'filename' => basename($db_key) ?: 'database.sql.gz',
+                'path' => $db_key,
+                'size' => $db_size,
+                'component' => 'database',
+                'is_cloud' => true
+            );
+        }
+    }
+
+    $all_backups[] = array(
+        'backup_id' => $backup_id,
+        'backup_type' => isset($backup['backup_type']) ? $backup['backup_type'] : 'full',
+        'status' => isset($backup['status']) ? $backup['status'] : 'unknown',
+        'total_size' => isset($backup['total_size_bytes']) ? $backup['total_size_bytes'] : 0,
+        'created_at' => isset($backup['created_at']) ? $backup['created_at'] : (isset($backup['started_at']) ? $backup['started_at'] : date('Y-m-d H:i:s')),
+        'date' => isset($backup['finished_at']) ? strtotime($backup['finished_at']) : (isset($backup['created_at']) ? strtotime($backup['created_at']) : time()),
+        'source' => 'saas',
+        'files' => $files,
+        'components' => $components,
+        'snapshot_id' => isset($backup['snapshot_id']) ? $backup['snapshot_id'] : null
+    );
+}
+
+// Add local backups that aren't in SaaS (legacy backups)
+foreach ($local_backups as $local_backup) {
+    if (!in_array($local_backup['backup_id'], $saas_backup_ids)) {
+        $local_backup['source'] = 'local';
+        $all_backups[] = $local_backup;
+    }
+}
+
+// Sort all backups by date (newest first)
+usort($all_backups, function ($a, $b) {
+    return $b['date'] - $a['date'];
+});
+
+$backups = $all_backups;
 ?>
 
 <div class="wrap">
@@ -102,10 +370,24 @@ if (is_dir($backup_dir)) {
 
     <?php if (empty($backups)): ?>
         <div class="notice notice-info">
-            <p><?php _e('No local backups found. Create a backup from the Dashboard to get started.', 'wp-vault'); ?></p>
+            <p><?php _e('No backups found. Create a backup from the Dashboard to get started.', 'wp-vault'); ?></p>
         </div>
     <?php else: ?>
-        <p><?php printf(__('Found %d local backup(s) stored in %s', 'wp-vault'), count($backups), '<code>wp-content/wp-vault-backups/</code>'); ?>
+        <p><?php
+        $saas_count = count(array_filter($backups, function ($b) {
+            return isset($b['source']) && $b['source'] === 'saas';
+        }));
+        $local_count = count(array_filter($backups, function ($b) {
+            return !isset($b['source']) || $b['source'] === 'local';
+        }));
+        if ($saas_count > 0 && $local_count > 0) {
+            printf(__('Found %d backup(s): %d in cloud, %d local', 'wp-vault'), count($backups), $saas_count, $local_count);
+        } elseif ($saas_count > 0) {
+            printf(__('Found %d backup(s) stored in cloud', 'wp-vault'), count($backups));
+        } else {
+            printf(__('Found %d local backup(s) stored in %s', 'wp-vault'), count($backups), '<code>wp-content/wp-vault-backups/</code>');
+        }
+        ?>
         </p>
 
         <table class="wp-list-table widefat fixed striped" id="wpv-backups-table">
@@ -122,7 +404,23 @@ if (is_dir($backup_dir)) {
             <tbody>
                 <?php foreach ($backups as $backup):
                     $backup_id = $backup['backup_id'];
-                    $has_components = !empty($backup['components']) || count($backup['files']) > 1;
+                    // Check if backup has components to display
+                    $has_components = false;
+                    if (!empty($backup['components'])) {
+                        // Check if any component has items
+                        foreach ($backup['components'] as $comp) {
+                            $comp_objects = isset($comp['objects']) ? $comp['objects'] : array();
+                            $comp_archives = isset($comp['archives']) ? $comp['archives'] : array();
+                            if (!empty($comp_objects) || !empty($comp_archives)) {
+                                $has_components = true;
+                                break;
+                            }
+                        }
+                    }
+                    // Also check files (for local backups)
+                    if (!$has_components && !empty($backup['files']) && count($backup['files']) > 1) {
+                        $has_components = true;
+                    }
                     $backup_name = 'Backup ' . substr($backup_id, 0, 8) . '...';
                     $backup_date = strtotime($backup['created_at']);
                     $total_size = $backup['total_size'];
@@ -144,8 +442,21 @@ if (is_dir($backup_dir)) {
                             <strong><?php echo esc_html($backup_name); ?></strong>
                             <br>
                             <small style="color:#666;">ID: <?php echo esc_html($backup_id); ?></small>
+                            <?php if (isset($backup['source']) && $backup['source'] === 'saas'): ?>
+                                <br><small style="color:#2271b1;">☁️ Cloud Backup</small>
+                            <?php elseif (isset($backup['source']) && $backup['source'] === 'local'): ?>
+                                <br><small style="color:#666;">💾 Local Backup</small>
+                            <?php endif; ?>
                         </td>
-                        <td><strong><?php echo size_format($total_size); ?></strong></td>
+                        <td>
+                            <strong><?php echo size_format($total_size); ?></strong>
+                            <?php if (isset($backup['status'])): ?>
+                                <br><span class="wpv-status wpv-status-<?php echo esc_attr($backup['status']); ?>"
+                                    style="font-size:11px; margin-top:3px; display:inline-block;">
+                                    <?php echo esc_html(ucfirst($backup['status'])); ?>
+                                </span>
+                            <?php endif; ?>
+                        </td>
                         <td>
                             <?php
                             $component_count = count($backup['components']);
@@ -218,21 +529,48 @@ if (is_dir($backup_dir)) {
                                             foreach ($backup['components'] as $component) {
                                                 $component_name = isset($component['name']) ? $component['name'] : '';
                                                 $component_label = isset($component_map[$component_name]) ? $component_map[$component_name] : ucfirst($component_name);
+                                                $component_objects = isset($component['objects']) ? $component['objects'] : array();
                                                 $component_archives = isset($component['archives']) ? $component['archives'] : array();
 
-                                                foreach ($component_archives as $archive_path) {
-                                                    $archive_filename = basename($archive_path);
-                                                    // Find matching file in backup files
+                                                // Use objects if available (from SaaS manifest), otherwise use archives (from local manifest)
+                                                $items_to_show = !empty($component_objects) ? $component_objects : $component_archives;
+
+                                                foreach ($items_to_show as $item) {
+                                                    // Handle both object format (from SaaS) and string format (from local)
+                                                    if (is_array($item)) {
+                                                        // SaaS format: {key, size, sha256}
+                                                        $archive_path = isset($item['key']) ? $item['key'] : '';
+                                                        $archive_filename = basename($archive_path) ?: $component_name . '.tar.gz';
+                                                        $file_size = isset($item['size']) ? $item['size'] : 0;
+                                                        $is_cloud = isset($backup['source']) && $backup['source'] === 'saas';
+                                                    } else {
+                                                        // Local format: string path
+                                                        $archive_path = $item;
+                                                        $archive_filename = basename($archive_path);
+                                                        $is_cloud = false;
+                                                    }
+
+                                                    // Find matching file info
                                                     $file_info = null;
-                                                    foreach ($backup['files'] as $file) {
-                                                        if (strpos($file['filename'], $component_name . '-') === 0) {
-                                                            $file_info = $file;
-                                                            break;
+                                                    if (!empty($backup['files'])) {
+                                                        foreach ($backup['files'] as $file) {
+                                                            if (isset($file['component']) && $file['component'] === $component_name) {
+                                                                $file_info = $file;
+                                                                break;
+                                                            }
+                                                            // Also check by filename
+                                                            if (
+                                                                strpos($file['filename'], $component_name) !== false ||
+                                                                strpos($archive_filename, $file['filename']) !== false
+                                                            ) {
+                                                                $file_info = $file;
+                                                                break;
+                                                            }
                                                         }
                                                     }
 
-                                                    if (!$file_info) {
-                                                        // Try to find by checking if file exists
+                                                    // If no file info found, check local filesystem (for local backups)
+                                                    if (!$file_info && !$is_cloud) {
                                                         $possible_path = $backup_dir . $archive_filename;
                                                         if (file_exists($possible_path)) {
                                                             $file_info = array(
@@ -243,23 +581,40 @@ if (is_dir($backup_dir)) {
                                                         }
                                                     }
 
-                                                    if ($file_info):
-                                                        ?>
-                                                        <tr>
-                                                            <td style="padding:8px;"><strong><?php echo esc_html($component_label); ?></strong></td>
-                                                            <td style="padding:8px;"><code
-                                                                    style="font-size:11px;"><?php echo esc_html($file_info['filename']); ?></code>
-                                                            </td>
-                                                            <td style="padding:8px;"><?php echo size_format($file_info['size']); ?></td>
-                                                            <td style="padding:8px;">
-                                                                <a href="<?php echo admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($file_info['filename']) . '&nonce=' . wp_create_nonce('wp-vault')); ?>"
-                                                                    class="button button-small">
-                                                                    <?php _e('Download', 'wp-vault'); ?>
-                                                                </a>
-                                                            </td>
-                                                        </tr>
-                                                        <?php
-                                                    endif;
+                                                    // Use file_info if available, otherwise use item data
+                                                    $display_filename = $file_info ? $file_info['filename'] : $archive_filename;
+                                                    $display_size = $file_info ? (isset($file_info['size']) ? $file_info['size'] : 0) : $file_size;
+                                                    ?>
+                                                    <tr>
+                                                        <td style="padding:8px;"><strong><?php echo esc_html($component_label); ?></strong></td>
+                                                        <td style="padding:8px;">
+                                                            <code style="font-size:11px;"><?php echo esc_html($display_filename); ?></code>
+                                                            <?php if ($is_cloud): ?>
+                                                                <br><small style="color:#2271b1;">☁️ Cloud Storage</small>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                        <td style="padding:8px;"><?php echo size_format($display_size); ?></td>
+                                                        <td style="padding:8px;">
+                                                            <?php if ($is_cloud): ?>
+                                                                <span
+                                                                    style="color:#666; font-size:11px;"><?php _e('Stored in cloud', 'wp-vault'); ?></span>
+                                                            <?php else: ?>
+                                                                <?php
+                                                                // For local backups, check if file exists
+                                                                $local_file_path = isset($file_info['path']) ? $file_info['path'] : $backup_dir . $display_filename;
+                                                                if (file_exists($local_file_path)): ?>
+                                                                    <a href="<?php echo admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($display_filename) . '&nonce=' . wp_create_nonce('wp-vault')); ?>"
+                                                                        class="button button-small">
+                                                                        <?php _e('Download', 'wp-vault'); ?>
+                                                                    </a>
+                                                                <?php else: ?>
+                                                                    <span
+                                                                        style="color:#999; font-size:11px;"><?php _e('File not found', 'wp-vault'); ?></span>
+                                                                <?php endif; ?>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                    </tr>
+                                                    <?php
                                                 }
                                             }
                                         } else {

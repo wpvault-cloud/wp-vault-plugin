@@ -121,6 +121,11 @@ class WP_Vault_Backup_Engine
             $this->log->write_log('Step 1: Backup initialization complete', 'info');
 
             // Step 1: Scan files (if files backup)
+            // Skip if incremental (should use incremental flow instead)
+            if ($this->backup_type === 'incremental') {
+                throw new \Exception('Incremental backups should use the incremental backup flow, not the standard backup engine');
+            }
+
             $files = array();
             if ($this->backup_type === 'full' || $this->backup_type === 'files') {
                 $this->log_progress('Scanning files...', 10);

@@ -17,6 +17,19 @@ class WP_Vault_Activator
     {
         global $wpdb;
 
+        // Flush rewrite rules to ensure REST API routes are registered
+        // This is critical for REST API to work
+        flush_rewrite_rules(false);
+
+        // Also ensure permalinks are enabled (REST API requires permalinks)
+        // If permalinks are set to "Plain", REST API won't work
+        $permalink_structure = get_option('permalink_structure');
+        if (empty($permalink_structure)) {
+            // Set a default permalink structure if none exists
+            update_option('permalink_structure', '/%postname%/');
+            flush_rewrite_rules(false);
+        }
+
         // Create wp_wp_vault_settings table
         $table_settings = $wpdb->prefix . 'wp_vault_settings';
         $charset_collate = $wpdb->get_charset_collate();
@@ -78,7 +91,37 @@ class WP_Vault_Activator
         // Add log_file_path column if table exists but column doesn't
         $log_file_path_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'log_file_path'");
         if (empty($log_file_path_exists)) {
-            $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
+            // Check if error_message exists before using AFTER
+            $error_message_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'error_message'");
+            if (!empty($error_message_exists)) {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
+            } else {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL");
+            }
+        }
+
+        // Add cursor column for resumable jobs (cursor is a reserved keyword, must escape)
+        $cursor_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'cursor'");
+        if (empty($cursor_exists)) {
+            // Check if log_file_path exists before using AFTER
+            $log_file_path_check = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'log_file_path'");
+            if (!empty($log_file_path_check)) {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN `cursor` TEXT DEFAULT NULL AFTER log_file_path");
+            } else {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN `cursor` TEXT DEFAULT NULL");
+            }
+        }
+
+        // Add phase column for job phase tracking
+        $phase_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'phase'");
+        if (empty($phase_exists)) {
+            // Check if cursor exists before using AFTER
+            $cursor_check = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'cursor'");
+            if (!empty($cursor_check)) {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN phase varchar(20) DEFAULT NULL AFTER cursor");
+            } else {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN phase varchar(20) DEFAULT NULL");
+            }
         }
 
         // Create wp_wp_vault_job_logs table (local cache of per-step logs)

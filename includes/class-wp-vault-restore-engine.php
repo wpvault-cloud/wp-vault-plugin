@@ -1530,4 +1530,137 @@ class WP_Vault_Restore_Engine
             $this->log->write_log($clean_message, $level);
         }
     }
+
+    /**
+     * Execute incremental restore from snapshot
+     * 
+     * @param string $snapshot_id Snapshot ID to restore
+     * @return bool Success
+     */
+    public function execute_incremental($snapshot_id)
+    {
+        try {
+            $this->log->write_log('===== INCREMENTAL RESTORE STARTED =====', 'info');
+            $this->log->write_log('Snapshot ID: ' . $snapshot_id, 'info');
+            $this->log->write_log('Restore Mode: ' . $this->restore_mode, 'info');
+
+            $this->log_progress('Requesting restore plan...', 5);
+
+            // Get restore plan from cloud
+            $api = new WP_Vault_API();
+            $plan_result = $api->get_restore_plan($snapshot_id, $this->restore_mode);
+
+            if (!$plan_result['success']) {
+                throw new \Exception('Failed to get restore plan: ' . ($plan_result['error'] ?? 'Unknown error'));
+            }
+
+            $restore_steps = $plan_result['data']['restore_steps'];
+            $this->log->write_log('Restore plan received: ' . count($restore_steps) . ' steps', 'info');
+
+            // Execute steps in order
+            $step_count = count($restore_steps);
+            foreach ($restore_steps as $index => $step) {
+                $step_num = $index + 1;
+                $progress = 10 + (($step_num / $step_count) * 80); // 10-90%
+
+                $this->log->write_log("Executing step $step_num/$step_count: {$step['type']} snapshot {$step['snapshot_id']}", 'info');
+                $this->log_progress("Restoring step $step_num/$step_count...", $progress);
+
+                // Download and extract each component
+                foreach ($step['download_urls'] as $component => $download_url) {
+                    $this->log->write_log("Downloading component: $component", 'info');
+
+                    // Download file
+                    $temp_file = $this->temp_dir . 'restore-' . time() . '-' . $component . '.tar.gz';
+                    $download_result = $this->download_file($download_url, $temp_file);
+
+                    if (!$download_result) {
+                        throw new \Exception("Failed to download component: $component");
+                    }
+
+                    // Extract and restore
+                    if ($component === 'database') {
+                        $this->restore_database_from_file($temp_file);
+                    } else {
+                        $this->restore_files_from_archive($temp_file, $component);
+                    }
+
+                    // Clean up
+                    @unlink($temp_file);
+                }
+            }
+
+            $this->log_progress('Restore complete', 100);
+            $this->log->write_log('===== INCREMENTAL RESTORE COMPLETE =====', 'info');
+
+            return true;
+        } catch (\Exception $e) {
+            $this->log->write_log('Restore failed: ' . $e->getMessage(), 'error');
+            $this->log_progress('Restore failed', 0);
+            throw $e;
+        }
+    }
+
+    /**
+     * Download file from URL
+     */
+    private function download_file($url, $destination)
+    {
+        $response = wp_remote_get($url, [
+            'timeout' => 300,
+            'stream' => true,
+            'filename' => $destination
+        ]);
+
+        if (is_wp_error($response)) {
+            $this->log->write_log('Download failed: ' . $response->get_error_message(), 'error');
+            return false;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        if ($status_code !== 200) {
+            $this->log->write_log("Download failed with status: $status_code", 'error');
+            return false;
+        }
+
+        return file_exists($destination);
+    }
+
+    /**
+     * Restore database from file
+     */
+    private function restore_database_from_file($sql_file)
+    {
+        $extract_dir = $this->temp_dir . 'restore-' . time() . '/';
+        wp_mkdir_p($extract_dir);
+
+        // Decompress if needed
+        if (substr($sql_file, -3) === '.gz') {
+            $decompressed = $extract_dir . 'database.sql';
+            $this->decompress_gz($sql_file, $decompressed);
+            $sql_file = $decompressed;
+        }
+
+        // Import to temp tables
+        $this->import_to_temp_tables($sql_file);
+
+        // Replace atomically
+        $temp_prefix = 'tmp' . time() . '_';
+        $this->replace_tables_atomically($temp_prefix);
+    }
+
+    /**
+     * Restore files from archive
+     */
+    private function restore_files_from_archive($archive_path, $component)
+    {
+        $extract_dir = $this->temp_dir . 'restore-' . time() . '-' . $component . '/';
+        wp_mkdir_p($extract_dir);
+
+        // Extract archive
+        $this->extract_archive($archive_path, $extract_dir);
+
+        // Restore files
+        $this->restore_files($extract_dir, [$component]);
+    }
 }

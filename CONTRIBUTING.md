@@ -77,7 +77,7 @@ We welcome feature suggestions! Please:
 1. Clone the repository
 
    ```bash
-   git clone https://github.com/wpvault/wp-vault-plugin.git
+   git clone https://github.com/wpvault-cloud/wp-vault-plugin.git
    cd wp-vault-plugin
    ```
 
@@ -156,12 +156,12 @@ Before submitting a PR:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the same proprietary license as the project. See [LICENSE](LICENSE) for details.
+By contributing, you agree that your contributions will be licensed under the same GPLv2 or later license as the project. See [LICENSE](LICENSE) for details.
 
 ## Questions?
 
 - Open an issue for discussion
-- Email: dev@wpvault.io
+- Email: dev@wpvault.cloud
 - Check existing documentation
 
 Thank you for contributing to WP Vault! 🎉

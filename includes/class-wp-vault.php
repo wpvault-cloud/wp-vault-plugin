@@ -34,6 +34,9 @@ class WP_Vault
         // Ensure database tables exist
         $this->ensure_tables_exist();
 
+        // Detect and store host capabilities
+        WP_Vault_Host_Detector::get_host_class();
+
         // Load text domain
         add_action('init', array($this, 'load_textdomain'));
 
@@ -41,7 +44,12 @@ class WP_Vault
         if (is_admin()) {
             add_action('admin_menu', array($this, 'add_admin_menu'));
             add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
+            // Redirect old pages early, before any output
+            add_action('admin_init', array($this, 'redirect_old_pages'));
         }
+
+        // Admin bar menu (works on both frontend and backend)
+        add_action('admin_bar_menu', array($this, 'add_admin_bar_menu'), 100);
 
         // Register AJAX handlers
         add_action('wp_ajax_wpv_test_connection', array($this, 'ajax_test_connection'));
@@ -58,6 +66,10 @@ class WP_Vault
         add_action('wp_ajax_wpv_download_backup_file', array($this, 'ajax_download_backup_file'));
         add_action('wp_ajax_wpv_read_log', array($this, 'ajax_read_log'));
         add_action('wp_ajax_wpv_download_log', array($this, 'ajax_download_log'));
+        add_action('wp_ajax_wpv_get_saas_storages', array($this, 'ajax_get_saas_storages'));
+        add_action('wp_ajax_wpv_set_primary_storage', array($this, 'ajax_set_primary_storage'));
+        add_action('wp_ajax_wpv_get_job_logs', array($this, 'ajax_get_job_logs'));
+        add_action('wp_ajax_wpv_cancel_restore', array($this, 'ajax_cancel_restore'));
 
         // Backup execution (async)
         add_action('wpv_execute_backup', array($this, 'execute_backup'), 10, 2);
@@ -67,6 +79,88 @@ class WP_Vault
             wp_schedule_event(time(), 'twicedaily', 'wpv_heartbeat');
         }
         add_action('wpv_heartbeat', array($this, 'send_heartbeat'));
+
+        // Poll for pending jobs (runs every 10 minutes)
+        // This implements the "pull" part of the hybrid model
+        if (!wp_next_scheduled('wpv_poll_pending_jobs')) {
+            wp_schedule_event(time(), 'wpv_10min', 'wpv_poll_pending_jobs');
+        }
+        add_action('wpv_poll_pending_jobs', array($this, 'poll_pending_jobs'));
+
+        // Register custom cron interval (10 minutes)
+        add_filter('cron_schedules', array($this, 'add_cron_intervals'));
+
+        // Register REST API routes for SaaS to trigger backups
+        // Use priority 20 to ensure it runs after other plugins
+        add_action('rest_api_init', array($this, 'register_rest_routes'), 20);
+
+        // Also register on init as a fallback (some hosts have issues with rest_api_init)
+        add_action('init', array($this, 'maybe_register_rest_routes'), 20);
+
+        // Check for pending jobs on admin page loads (immediate polling)
+        if (is_admin()) {
+            add_action('admin_init', array($this, 'check_pending_jobs_on_load'));
+            // Also check for local pending jobs that might be stuck
+            add_action('admin_init', array($this, 'execute_pending_local_jobs'));
+        }
+    }
+
+    /**
+     * Register REST API routes
+     */
+    public function register_rest_routes()
+    {
+        // Ensure the REST API class is loaded
+        if (!class_exists('WP_Vault\\WP_Vault_REST_API')) {
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-rest-api.php';
+        }
+
+        // Register the routes
+        WP_Vault_REST_API::register_routes();
+
+        // Debug: Log route registration (only in debug mode)
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('WP Vault: REST API routes registered via rest_api_init');
+        }
+    }
+
+    /**
+     * Fallback REST API route registration on init
+     * Some hosting environments have issues with rest_api_init hook
+     */
+    public function maybe_register_rest_routes()
+    {
+        // Only register if REST API is available and we're in a REST API context
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            $this->register_rest_routes();
+        }
+    }
+
+    /**
+     * Check for pending jobs when admin pages load (immediate polling)
+     * This ensures pending jobs are picked up quickly without waiting for cron
+     */
+    public function check_pending_jobs_on_load()
+    {
+        // Only check on WP Vault admin pages to avoid overhead
+        $screen = get_current_screen();
+        if (!$screen || strpos($screen->id, 'wp-vault') === false) {
+            return;
+        }
+
+        // Check if we've polled recently (avoid too frequent checks)
+        $last_poll = get_transient('wpv_last_pending_job_poll');
+        if ($last_poll && (time() - $last_poll) < 60) {
+            // Polled within last minute, skip
+            return;
+        }
+
+        // Set transient to prevent multiple simultaneous polls
+        set_transient('wpv_last_pending_job_poll', time(), 60);
+
+        // Trigger polling in background (non-blocking)
+        wp_schedule_single_event(time(), 'wpv_poll_pending_jobs');
+        spawn_cron();
     }
 
     /**
@@ -86,7 +180,37 @@ class WP_Vault
         // Check and add log_file_path column to wp_wp_vault_jobs if missing
         $log_file_path_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'log_file_path'");
         if (empty($log_file_path_exists)) {
-            $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
+            // Check if error_message exists before using AFTER
+            $error_message_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'error_message'");
+            if (!empty($error_message_exists)) {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
+            } else {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL");
+            }
+        }
+
+        // Check and add cursor column for resumable jobs (cursor is a reserved keyword, must escape)
+        $cursor_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'cursor'");
+        if (empty($cursor_exists)) {
+            // Check if log_file_path exists before using AFTER
+            $log_file_path_check = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'log_file_path'");
+            if (!empty($log_file_path_check)) {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN `cursor` TEXT DEFAULT NULL AFTER log_file_path");
+            } else {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN `cursor` TEXT DEFAULT NULL");
+            }
+        }
+
+        // Check and add phase column for job phase tracking
+        $phase_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'phase'");
+        if (empty($phase_exists)) {
+            // Check if cursor exists before using AFTER
+            $cursor_check = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'cursor'");
+            if (!empty($cursor_check)) {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN phase varchar(20) DEFAULT NULL AFTER cursor");
+            } else {
+                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN phase varchar(20) DEFAULT NULL");
+            }
         }
 
         // Drop wp_vault_job_logs table (replaced by file-based logging)
@@ -156,6 +280,7 @@ class WP_Vault
             30
         );
 
+        // Dashboard (main page - shows last 5 backups)
         add_submenu_page(
             'wp-vault',
             __('Dashboard', 'wp-vault'),
@@ -165,31 +290,34 @@ class WP_Vault
             array($this, 'render_dashboard_page')
         );
 
+        // Backups (shows all backups)
         add_submenu_page(
             'wp-vault',
             __('Backups', 'wp-vault'),
             __('Backups', 'wp-vault'),
             'manage_options',
             'wp-vault-backups',
-            array($this, 'render_backups_page')
+            array($this, 'render_dashboard_page')
         );
 
+        // Restores (shows restore history)
         add_submenu_page(
             'wp-vault',
             __('Restores', 'wp-vault'),
             __('Restores', 'wp-vault'),
             'manage_options',
             'wp-vault-restores',
-            array($this, 'render_restores_page')
+            array($this, 'render_dashboard_page')
         );
 
+        // Storage (moved from Settings tab, menu item renamed from "Settings")
         add_submenu_page(
             'wp-vault',
-            __('Settings', 'wp-vault'),
-            __('Settings', 'wp-vault'),
+            __('Storage', 'wp-vault'),
+            __('Storage', 'wp-vault'),
             'manage_options',
-            'wp-vault-settings',
-            array($this, 'render_settings_page')
+            'wp-vault-settings', // Keep old slug for compatibility
+            array($this, 'render_dashboard_page') // Render dashboard with storage tab
         );
     }
 
@@ -217,7 +345,7 @@ class WP_Vault
     }
 
     /**
-     * Render dashboard page
+     * Render dashboard page (unified tabbed interface)
      */
     public function render_dashboard_page()
     {
@@ -225,21 +353,155 @@ class WP_Vault
     }
 
     /**
-     * Render settings page
+     * Redirect old pages early (before any output)
+     */
+    public function redirect_old_pages()
+    {
+        $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+
+        // Remove restores redirect since we removed that menu item
+        // Backups page will render dashboard with backups tab automatically
+    }
+
+    /**
+     * Redirect old submenu pages to dashboard with appropriate tab
+     * (Fallback if admin_init redirect didn't work)
+     */
+    public function redirect_to_dashboard_tab()
+    {
+        $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+        $tab = 'backups';
+
+        if ($page === 'wp-vault-backups') {
+            $tab = 'backups';
+        } elseif ($page === 'wp-vault-restores') {
+            $tab = 'backups'; // Restores are handled in backups tab
+        }
+
+        // Use JavaScript redirect as fallback since headers may already be sent
+        echo '<script>window.location.href = "' . esc_js(admin_url('admin.php?page=wp-vault&tab=' . $tab)) . '";</script>';
+        exit;
+    }
+
+    /**
+     * Render backups page (legacy - redirects to dashboard)
      */
     public function render_backups_page()
     {
-        require_once WP_VAULT_PLUGIN_DIR . 'admin/backups.php';
+        // Use JavaScript redirect since headers may already be sent
+        echo '<script>window.location.href = "' . esc_js(admin_url('admin.php?page=wp-vault&tab=backups')) . '";</script>';
+        exit;
     }
 
+    /**
+     * Render restores page (legacy - redirects to dashboard)
+     */
     public function render_restores_page()
     {
-        require_once WP_VAULT_PLUGIN_DIR . 'admin/restores.php';
+        // Use JavaScript redirect since headers may already be sent
+        echo '<script>window.location.href = "' . esc_js(admin_url('admin.php?page=wp-vault&tab=backups')) . '";</script>';
+        exit;
     }
 
+    /**
+     * Render settings page (can be accessed both as submenu and tab)
+     */
     public function render_settings_page()
     {
-        require_once WP_VAULT_PLUGIN_DIR . 'admin/settings.php';
+        // If accessed from submenu, redirect to dashboard with settings tab
+        // But also allow direct access for backward compatibility
+        if (!isset($_GET['tab'])) {
+            // Check if we should redirect or show standalone
+            // For now, show standalone settings page
+            require_once WP_VAULT_PLUGIN_DIR . 'admin/settings.php';
+        } else {
+            require_once WP_VAULT_PLUGIN_DIR . 'admin/dashboard.php';
+        }
+    }
+
+    /**
+     * Add admin bar menu
+     */
+    public function add_admin_bar_menu($wp_admin_bar)
+    {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Main menu item
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault',
+            'title' => '<span class="ab-icon dashicons-cloud-upload"></span> <span class="ab-label">WP Vault</span>',
+            'href' => admin_url('admin.php?page=wp-vault'),
+            'meta' => array(
+                'title' => __('WP Vault', 'wp-vault'),
+            ),
+        ));
+
+        // Dashboard
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault-dashboard',
+            'parent' => 'wp-vault',
+            'title' => __('Dashboard', 'wp-vault'),
+            'href' => admin_url('admin.php?page=wp-vault'),
+        ));
+
+        // Backup Now
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault-backup-now',
+            'parent' => 'wp-vault',
+            'title' => __('Backup Now', 'wp-vault'),
+            'href' => admin_url('admin.php?page=wp-vault&tab=backups'),
+            'meta' => array(
+                'onclick' => 'jQuery("#wpv-backup-now").click(); return false;',
+            ),
+        ));
+
+        // Dashboard
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault-dashboard-menu',
+            'parent' => 'wp-vault',
+            'title' => __('Dashboard', 'wp-vault'),
+            'href' => admin_url('admin.php?page=wp-vault&tab=dashboard'),
+        ));
+
+        // View Backups
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault-backups',
+            'parent' => 'wp-vault',
+            'title' => __('View All Backups', 'wp-vault'),
+            'href' => admin_url('admin.php?page=wp-vault&tab=backups'),
+        ));
+
+        // Restores
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault-restores',
+            'parent' => 'wp-vault',
+            'title' => __('Restores', 'wp-vault'),
+            'href' => admin_url('admin.php?page=wp-vault&tab=restores'),
+        ));
+
+        // Storage (renamed from Settings in menu)
+        $wp_admin_bar->add_node(array(
+            'id' => 'wp-vault-storage',
+            'parent' => 'wp-vault',
+            'title' => __('Storage', 'wp-vault'),
+            'href' => admin_url('admin.php?page=wp-vault-settings'), // Uses old slug but goes to storage tab
+        ));
+
+        // SaaS Dashboard (if registered)
+        if (get_option('wpv_site_id')) {
+            $api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
+            $wp_admin_bar->add_node(array(
+                'id' => 'wp-vault-saas-dashboard',
+                'parent' => 'wp-vault',
+                'title' => __('SaaS Dashboard', 'wp-vault'),
+                'href' => esc_url($api_endpoint . '/dashboard'),
+                'meta' => array(
+                    'target' => '_blank',
+                ),
+            ));
+        }
     }
 
     /**
@@ -366,6 +628,165 @@ class WP_Vault
     }
 
     /**
+     * Add custom cron intervals
+     */
+    public function add_cron_intervals($schedules)
+    {
+        $schedules['wpv_10min'] = array(
+            'interval' => 600, // 10 minutes
+            'display' => __('Every 10 Minutes', 'wp-vault')
+        );
+        return $schedules;
+    }
+
+    /**
+     * Poll SaaS for pending backup jobs (Hybrid Model - Pull)
+     * 
+     * This runs every 10 minutes via wp-cron to check for pending jobs
+     * that couldn't be pushed directly (e.g., site behind firewall)
+     */
+    public function poll_pending_jobs()
+    {
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+        $api = new WP_Vault_API();
+
+        // Get site_id and site_token
+        $site_id = get_option('wpv_site_id');
+        $site_token = get_option('wpv_site_token');
+
+        if (!$site_id || !$site_token) {
+            error_log('[WP Vault] Cannot poll pending jobs: site not registered');
+            return;
+        }
+
+        error_log('[WP Vault] Polling for pending jobs...');
+
+        // Poll SaaS for pending jobs
+        $pending_jobs = $api->get_pending_jobs($site_id, $site_token);
+
+        if (!$pending_jobs || !isset($pending_jobs['success']) || !$pending_jobs['success']) {
+            error_log('[WP Vault] No pending jobs or error fetching: ' . (isset($pending_jobs['error']) ? $pending_jobs['error'] : 'unknown'));
+            return;
+        }
+
+        $jobs = isset($pending_jobs['pending_jobs']) ? $pending_jobs['pending_jobs'] : array();
+
+        if (empty($jobs)) {
+            error_log('[WP Vault] No pending jobs found');
+            return;
+        }
+
+        error_log('[WP Vault] Found ' . count($jobs) . ' pending job(s)');
+
+        // Process each pending job
+        foreach ($jobs as $job) {
+            $backup_id = isset($job['backup_id']) ? $job['backup_id'] : null;
+            $backup_type = isset($job['backup_type']) ? $job['backup_type'] : 'full';
+
+            if (!$backup_id) {
+                continue;
+            }
+
+            // Try to claim the job (prevents multiple instances from picking it up)
+            $claimed = $api->claim_pending_job($site_id, $site_token, $backup_id);
+
+            if (!$claimed || !isset($claimed['success']) || !$claimed['success']) {
+                error_log('[WP Vault] Failed to claim job ' . $backup_id . ': ' . (isset($claimed['error']) ? $claimed['error'] : 'already claimed'));
+                continue;
+            }
+
+            error_log('[WP Vault] Claimed pending job: ' . $backup_id . ' (type: ' . $backup_type . ')');
+
+            // Create local job record
+            global $wpdb;
+            $table = $wpdb->prefix . 'wp_vault_jobs';
+
+            // Check if job already exists locally
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $table WHERE backup_id = %s",
+                $backup_id
+            ));
+
+            if (!$existing) {
+                $wpdb->insert(
+                    $table,
+                    array(
+                        'backup_id' => $backup_id,
+                        'job_type' => $backup_type,
+                        'status' => 'pending',
+                        'progress_percent' => 0,
+                        'started_at' => current_time('mysql'),
+                    ),
+                    array('%s', '%s', '%s', '%d', '%s')
+                );
+            }
+
+            // Update local job status to 'running' if it exists
+            if ($existing) {
+                $wpdb->update(
+                    $table,
+                    array('status' => 'running'),
+                    array('backup_id' => $backup_id),
+                    array('%s'),
+                    array('%s')
+                );
+            }
+
+            // Execute backup immediately
+            // This will be picked up by the existing execute_backup method
+            wp_schedule_single_event(time(), 'wpv_execute_backup', array($backup_id, $backup_type));
+
+            // Also trigger immediately
+            do_action('wpv_execute_backup', $backup_id, $backup_type);
+        }
+    }
+
+    /**
+     * Check for local pending jobs and execute them
+     * This helps recover jobs that were created but not executed
+     */
+    public function execute_pending_local_jobs()
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'wp_vault_jobs';
+
+        // Find pending jobs that are older than 1 minute (give initial execution time)
+        $one_minute_ago = date('Y-m-d H:i:s', time() - 60);
+        $pending_jobs = $wpdb->get_results($wpdb->prepare(
+            "SELECT backup_id, job_type FROM $table 
+             WHERE status = %s 
+             AND (started_at IS NULL OR started_at < %s)
+             ORDER BY started_at ASC
+             LIMIT 5",
+            'pending',
+            $one_minute_ago
+        ));
+
+        if (empty($pending_jobs)) {
+            return;
+        }
+
+        error_log('[WP Vault] Found ' . count($pending_jobs) . ' local pending job(s) to execute');
+
+        foreach ($pending_jobs as $job) {
+            error_log('[WP Vault] Executing pending local job: ' . $job->backup_id);
+
+            // Update status to running
+            $wpdb->update(
+                $table,
+                array('status' => 'running'),
+                array('backup_id' => $job->backup_id),
+                array('%s'),
+                array('%s')
+            );
+
+            // Execute backup
+            wp_schedule_single_event(time(), 'wpv_execute_backup', array($job->backup_id, $job->job_type));
+            do_action('wpv_execute_backup', $job->backup_id, $job->job_type);
+        }
+    }
+
+    /**
      * Execute backup (async)
      */
     public function execute_backup($backup_id, $backup_type)
@@ -376,22 +797,290 @@ class WP_Vault
         @ini_set('memory_limit', '512M');
 
         error_log('[WP Vault] execute_backup called - Backup ID: ' . $backup_id . ', Type: ' . $backup_type);
+        error_log('[WP Vault] Backup type check: ' . ($backup_type === 'incremental' ? 'INCREMENTAL FLOW' : 'STANDARD FLOW'));
 
-        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-backup-engine.php';
+        // Handle incremental backups differently
+        if ($backup_type === 'incremental') {
+            error_log('[WP Vault] Using incremental backup flow');
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-file-scanner.php';
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-fingerprinter.php';
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-hasher.php';
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-incremental-uploader.php';
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-log.php';
 
-        try {
-            $engine = new WP_Vault_Backup_Engine($backup_id, $backup_type);
-            $result = $engine->execute();
+            try {
+                $log = new WP_Vault_Log();
+                $log->create_log_file($backup_id, 'backup');
+                $api = new WP_Vault_API();
 
-            // Update SaaS with result
-            if ($result['success']) {
-                error_log('[WP Vault] Backup completed: ' . $backup_id);
-            } else {
-                error_log('[WP Vault] Backup failed: ' . $result['error']);
+                // Store log file path in database
+                global $wpdb;
+                $table = $wpdb->prefix . 'wp_vault_jobs';
+                $log_file_path = $log->get_log_file();
+                $wpdb->update(
+                    $table,
+                    ['log_file_path' => $log_file_path],
+                    ['backup_id' => $backup_id],
+                    ['%s'],
+                    ['%s']
+                );
+
+                // Send initial log to SaaS
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'init',
+                    'message' => 'Starting incremental backup',
+                    'percent' => 0
+                ]);
+
+                $log->write_log('Starting incremental backup', 'info');
+
+                // Step 1: Scan files (resumable)
+                $log->write_log('Step 1: Scanning files...', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'scan',
+                    'message' => 'Step 1: Scanning files...',
+                    'percent' => 5
+                ]);
+                $scanner = new WP_Vault_File_Scanner();
+                $files = [];
+                $cursor = null;
+                $scan_complete = false;
+
+                // Keep scanning until complete (within time budget)
+                $max_iterations = 100; // Safety limit
+                $iteration = 0;
+                while (!$scan_complete && $iteration < $max_iterations) {
+                    $scan_result = $scanner->scan($cursor);
+                    $files = array_merge($files, $scan_result['files']);
+                    $cursor = $scan_result['cursor'];
+                    $scan_complete = $scan_result['completed'] ?? false;
+                    $iteration++;
+
+                    if ($scan_complete) {
+                        break;
+                    }
+
+                    // If we've scanned enough files for this run, continue in next iteration
+                    // For now, continue scanning until complete
+                }
+
+                $log->write_log('Scanned ' . count($files) . ' files (completed: ' . ($scan_complete ? 'yes' : 'no') . ')', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'scan',
+                    'message' => 'Scanned ' . count($files) . ' files',
+                    'percent' => 15
+                ]);
+
+                if (empty($files)) {
+                    throw new \Exception('No files found to backup. This may indicate a scanning issue.');
+                }
+
+                // Step 2: Fingerprint files (add full_path for fingerprinting)
+                $log->write_log('Step 2: Fingerprinting files...', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'fingerprint',
+                    'message' => 'Step 2: Fingerprinting files...',
+                    'percent' => 20
+                ]);
+                foreach ($files as &$file) {
+                    // Add full_path for fingerprinting
+                    $file['full_path'] = WP_CONTENT_DIR . '/' . ltrim($file['path'], '/');
+                }
+                unset($file); // Break reference
+
+                $fingerprint_result = WP_Vault_Fingerprinter::batch_fingerprint($files);
+                $files = $fingerprint_result['files'];
+                $log->write_log('Fingerprinted ' . $fingerprint_result['processed'] . ' files', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'fingerprint',
+                    'message' => 'Fingerprinted ' . $fingerprint_result['processed'] . ' files',
+                    'percent' => 30
+                ]);
+
+                // Step 3: Submit inventory to cloud
+                $log->write_log('Step 3: Submitting inventory to cloud...', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'inventory',
+                    'message' => 'Step 3: Submitting inventory to cloud...',
+                    'percent' => 35
+                ]);
+
+                // Prepare file list for inventory
+                $inventory_files = [];
+                foreach ($files as $file) {
+                    $inventory_files[] = [
+                        'path' => $file['path'],
+                        'size' => $file['size'],
+                        'mtime' => $file['mtime'],
+                        'fingerprint' => $file['fingerprint'] ?? null
+                    ];
+                }
+
+                $inventory_result = $api->submit_inventory($inventory_files);
+                if (!$inventory_result['success']) {
+                    throw new \Exception('Failed to submit inventory: ' . ($inventory_result['error'] ?? 'Unknown error'));
+                }
+                $log->write_log('Inventory submitted successfully', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'inventory',
+                    'message' => 'Inventory submitted successfully',
+                    'percent' => 40
+                ]);
+
+                // Step 4: Get incremental plan
+                $log->write_log('Step 4: Requesting incremental plan...', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'plan',
+                    'message' => 'Step 4: Requesting incremental plan...',
+                    'percent' => 45
+                ]);
+                $plan_response = wp_remote_post($api->get_api_endpoint() . '/api/v1/plan-incremental', [
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => json_encode([
+                        'site_id' => get_option('wpv_site_id'),
+                        'site_token' => get_option('wpv_site_token'),
+                        'files' => $inventory_files
+                    ]),
+                    'timeout' => 60
+                ]);
+
+                if (is_wp_error($plan_response)) {
+                    throw new \Exception('Failed to get incremental plan: ' . $plan_response->get_error_message());
+                }
+
+                $plan_status = wp_remote_retrieve_response_code($plan_response);
+                $plan_body = json_decode(wp_remote_retrieve_body($plan_response), true);
+
+                if ($plan_status !== 200) {
+                    $error_msg = isset($plan_body['error']) ? $plan_body['error'] : 'Unknown error';
+                    if (isset($plan_body['requires_upgrade']) && $plan_body['requires_upgrade']) {
+                        throw new \Exception('Incremental backups require a paid plan. ' . $error_msg);
+                    }
+                    throw new \Exception('Failed to get incremental plan (HTTP ' . $plan_status . '): ' . $error_msg);
+                }
+
+                if (!isset($plan_body['snapshot_id'])) {
+                    $log->write_log('Plan response: ' . wp_remote_retrieve_body($plan_response), 'error');
+                    throw new \Exception('Invalid plan response: ' . wp_remote_retrieve_body($plan_response));
+                }
+
+                $log->write_log('Incremental plan received. Snapshot ID: ' . $plan_body['snapshot_id'], 'info');
+                $log->write_log('Files to upload: ' . count($plan_body['upload_required']), 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'plan',
+                    'message' => 'Incremental plan received. Files to upload: ' . count($plan_body['upload_required']),
+                    'percent' => 50
+                ]);
+
+                // Step 5: Execute incremental upload
+                $log->write_log('Step 5: Executing incremental upload...', 'info');
+                $api->send_log($backup_id, [
+                    'severity' => 'INFO',
+                    'step' => 'upload',
+                    'message' => 'Step 5: Executing incremental upload...',
+                    'percent' => 55
+                ]);
+                $uploader = new WP_Vault_Incremental_Uploader($backup_id, $log);
+                $upload_result = $uploader->execute($plan_body);
+
+                if ($upload_result['success']) {
+                    $log->write_log('Incremental backup completed successfully', 'info');
+                    $api->send_log($backup_id, [
+                        'severity' => 'INFO',
+                        'step' => 'complete',
+                        'message' => 'Incremental backup completed successfully',
+                        'percent' => 100
+                    ]);
+
+                    // Update local job status
+                    global $wpdb;
+                    $table = $wpdb->prefix . 'wp_vault_jobs';
+                    $total_size = 0;
+                    foreach ($upload_result['data']['objects'] ?? [] as $obj) {
+                        $total_size += $obj['size'] ?? 0;
+                    }
+
+                    $wpdb->update(
+                        $table,
+                        [
+                            'status' => 'completed',
+                            'progress_percent' => 100,
+                            'total_size_bytes' => $total_size,
+                            'finished_at' => current_time('mysql')
+                        ],
+                        ['backup_id' => $backup_id]
+                    );
+
+                    // Update SaaS
+                    $api->update_job_status($backup_id, 'completed', $total_size);
+
+                    error_log('[WP Vault] Incremental backup completed: ' . $backup_id);
+                } else {
+                    throw new \Exception('Upload failed: ' . ($upload_result['error'] ?? 'Unknown error'));
+                }
+
+                $log->close_file();
+            } catch (\Exception $e) {
+                error_log('[WP Vault] Incremental backup exception: ' . $e->getMessage());
+                error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
+
+                // Update job status to failed
+                global $wpdb;
+                $table = $wpdb->prefix . 'wp_vault_jobs';
+                $wpdb->update(
+                    $table,
+                    [
+                        'status' => 'failed',
+                        'error_message' => $e->getMessage(),
+                        'finished_at' => current_time('mysql')
+                    ],
+                    ['backup_id' => $backup_id]
+                );
+
+                // Update SaaS
+                if (isset($api)) {
+                    $api->send_log($backup_id, [
+                        'severity' => 'ERROR',
+                        'step' => 'error',
+                        'message' => 'Backup failed: ' . $e->getMessage(),
+                        'percent' => 0
+                    ]);
+                    $api->update_job_status($backup_id, 'failed');
+                }
+
+                if (isset($log)) {
+                    $log->write_log('Backup failed: ' . $e->getMessage(), 'error');
+                    $log->close_file();
+                }
             }
-        } catch (\Exception $e) {
-            error_log('[WP Vault] Backup exception: ' . $e->getMessage());
-            error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
+        } else {
+            // Full backup, files only, or database only
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-backup-engine.php';
+
+            try {
+                $engine = new WP_Vault_Backup_Engine($backup_id, $backup_type);
+                $result = $engine->execute();
+
+                // Update SaaS with result
+                if ($result['success']) {
+                    error_log('[WP Vault] Backup completed: ' . $backup_id);
+                } else {
+                    error_log('[WP Vault] Backup failed: ' . $result['error']);
+                }
+            } catch (\Exception $e) {
+                error_log('[WP Vault] Backup exception: ' . $e->getMessage());
+                error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
+            }
         }
     }
     /**
@@ -744,13 +1433,56 @@ class WP_Vault
         $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
         $manifest_file = $backup_dir . 'backup-' . $backup_id . '-manifest.json';
 
-        if (!file_exists($manifest_file)) {
-            wp_die('Backup manifest not found');
+        $files_to_zip = array();
+
+        // Try to get files from manifest first
+        if (file_exists($manifest_file)) {
+            $manifest_data = json_decode(file_get_contents($manifest_file), true);
+            if ($manifest_data && !empty($manifest_data['files'])) {
+                foreach ($manifest_data['files'] as $file) {
+                    $file_path = $backup_dir . (is_array($file) ? $file['filename'] : $file);
+                    if (file_exists($file_path)) {
+                        $files_to_zip[] = array(
+                            'path' => $file_path,
+                            'name' => is_array($file) ? $file['filename'] : basename($file)
+                        );
+                    }
+                }
+                // Add manifest to ZIP
+                $files_to_zip[] = array(
+                    'path' => $manifest_file,
+                    'name' => basename($manifest_file)
+                );
+            }
         }
 
-        $manifest_data = json_decode(file_get_contents($manifest_file), true);
-        if (!$manifest_data || empty($manifest_data['files'])) {
-            wp_die('Invalid backup manifest');
+        // If no manifest or no files found, look for component files or single backup file
+        if (empty($files_to_zip)) {
+            // Look for component files
+            $component_files = glob($backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz', GLOB_BRACE);
+            foreach ($component_files as $file) {
+                if (file_exists($file)) {
+                    $files_to_zip[] = array(
+                        'path' => $file,
+                        'name' => basename($file)
+                    );
+                }
+            }
+
+            // If still no files, look for single backup file
+            if (empty($files_to_zip)) {
+                $single_file = glob($backup_dir . 'backup-' . $backup_id . '-*.tar.gz');
+                if (!empty($single_file) && file_exists($single_file[0])) {
+                    $files_to_zip[] = array(
+                        'path' => $single_file[0],
+                        'name' => basename($single_file[0])
+                    );
+                }
+            }
+        }
+
+        if (empty($files_to_zip)) {
+            wp_die('No backup files found');
         }
 
         // Create ZIP archive with all components
@@ -769,32 +1501,21 @@ class WP_Vault
                 wp_die('Failed to create ZIP archive');
             }
 
-            // Add all component files to ZIP
-            foreach ($manifest_data['files'] as $file) {
-                $file_path = $backup_dir . $file['filename'];
-                if (file_exists($file_path)) {
-                    $zip->addFile($file_path, $file['filename']);
-                }
+            // Add all files to ZIP
+            foreach ($files_to_zip as $file_info) {
+                $zip->addFile($file_info['path'], $file_info['name']);
             }
 
-            // Add manifest
-            $zip->addFile($manifest_file, basename($manifest_file));
             $zip->close();
         } else {
             // Fallback to PclZip
             require_once ABSPATH . 'wp-admin/includes/class-pclzip.php';
             $zip = new \PclZip($zip_path);
 
-            // Add all component files to ZIP
-            foreach ($manifest_data['files'] as $file) {
-                $file_path = $backup_dir . $file['filename'];
-                if (file_exists($file_path)) {
-                    $zip->add($file_path, PCLZIP_OPT_REMOVE_PATH, $backup_dir);
-                }
+            // Add all files to ZIP
+            foreach ($files_to_zip as $file_info) {
+                $zip->add($file_info['path'], PCLZIP_OPT_REMOVE_PATH, $backup_dir);
             }
-
-            // Add manifest
-            $zip->add($manifest_file, PCLZIP_OPT_REMOVE_PATH, $backup_dir);
         }
 
         if (!file_exists($zip_path)) {
@@ -1053,6 +1774,115 @@ class WP_Vault
     }
 
     /**
+     * AJAX: Get job logs
+     */
+    public function ajax_get_job_logs()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+            return;
+        }
+
+        $job_id = isset($_POST['job_id']) ? sanitize_text_field($_POST['job_id']) : '';
+
+        if (empty($job_id)) {
+            wp_send_json_error(array('message' => 'Job ID required'));
+            return;
+        }
+
+        global $wpdb;
+        $logs_table = $wpdb->prefix . 'wp_vault_job_logs';
+        $jobs_table = $wpdb->prefix . 'wp_vault_jobs';
+
+        // Get job logs
+        $logs = array();
+        if ($wpdb->get_var("SHOW TABLES LIKE '$logs_table'") == $logs_table) {
+            $logs = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM $logs_table WHERE job_id = %s ORDER BY created_at ASC",
+                    $job_id
+                ),
+                ARRAY_A
+            );
+        }
+
+        // Also try to get log file path from job
+        $job = $wpdb->get_row($wpdb->prepare("SELECT log_file_path FROM $jobs_table WHERE backup_id = %s", $job_id));
+        if ($job && !empty($job->log_file_path) && file_exists($job->log_file_path)) {
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-log.php';
+            $log_result = WP_Vault_Log::read_log($job->log_file_path, -200); // Last 200 lines
+            if (!empty($log_result['content'])) {
+                $log_lines = explode("\n", trim($log_result['content']));
+                foreach ($log_lines as $line) {
+                    if (empty(trim($line)))
+                        continue;
+                    if (preg_match('/^\[([^\]]+)\]\[([^\]]+)\]\s*(.+)$/', $line, $matches)) {
+                        $logs[] = array(
+                            'severity' => strtoupper($matches[2]),
+                            'message' => $matches[3],
+                            'created_at' => $matches[1],
+                            'step' => '',
+                        );
+                    }
+                }
+            }
+        }
+
+        wp_send_json_success(array(
+            'logs' => $logs,
+            'job_id' => $job_id,
+        ));
+    }
+
+    /**
+     * AJAX: Cancel restore
+     */
+    public function ajax_cancel_restore()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+            return;
+        }
+
+        $restore_id = isset($_POST['restore_id']) ? sanitize_text_field($_POST['restore_id']) : '';
+
+        if (empty($restore_id)) {
+            wp_send_json_error(array('message' => 'Restore ID required'));
+            return;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'wp_vault_jobs';
+
+        // Update restore status to cancelled
+        $updated = $wpdb->update(
+            $table,
+            array(
+                'status' => 'cancelled',
+                'error_message' => 'Restore cancelled by user',
+                'finished_at' => current_time('mysql'),
+                'updated_at' => current_time('mysql'),
+            ),
+            array('backup_id' => $restore_id, 'job_type' => 'restore'),
+            array('%s', '%s', '%s', '%s'),
+            array('%s', '%s')
+        );
+
+        if ($updated !== false) {
+            wp_send_json_success(array(
+                'message' => 'Restore cancelled successfully',
+                'restore_id' => $restore_id,
+            ));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to cancel restore'));
+        }
+    }
+
+    /**
      * AJAX: Download log file
      */
     public function ajax_download_log()
@@ -1092,5 +1922,57 @@ class WP_Vault
         header('Content-Length: ' . filesize($log_file_path));
         readfile($log_file_path);
         exit;
+    }
+
+    /**
+     * AJAX: Get storage configuration from SaaS
+     */
+    public function ajax_get_saas_storages()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+        $api = new WP_Vault_API();
+
+        $result = $api->get_storage_config();
+
+        if ($result['success']) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
+    }
+
+    /**
+     * AJAX: Set primary storage
+     */
+    public function ajax_set_primary_storage()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+
+        $storage_id = isset($_POST['storage_id']) ? sanitize_text_field($_POST['storage_id']) : '';
+
+        if (empty($storage_id)) {
+            wp_send_json_error(array('message' => 'Storage ID is required'));
+        }
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+        $api = new WP_Vault_API();
+
+        $result = $api->set_primary_storage($storage_id);
+
+        if ($result['success']) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
     }
 }

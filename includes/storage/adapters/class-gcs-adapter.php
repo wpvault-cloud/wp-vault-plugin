@@ -26,7 +26,7 @@ class GCS_Adapter implements Storage_Adapter
         $this->config = $config;
         $this->api_endpoint = isset($config['api_endpoint'])
             ? $config['api_endpoint']
-            : get_option('wpv_api_endpoint', 'https://api.wpvault.com');
+            : get_option('wpv_api_endpoint', 'https://api.wpvault.cloud');
         $this->site_token = isset($config['site_token'])
             ? $config['site_token']
             : get_option('wpv_site_token', '');

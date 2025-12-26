@@ -106,8 +106,21 @@ $compression_mode = get_option('wpv_compression_mode', 'fast');
 $file_split_size = get_option('wpv_file_split_size', 200); // Default 200MB
 ?>
 
-<div class="wrap">
-    <h1><?php _e('WP Vault Settings', 'wp-vault'); ?></h1>
+<div class="wrap wpv-settings-standalone">
+    <div class="wpv-header">
+        <div class="wpv-header-left">
+            <h1 class="wpv-page-title">
+                <img src="<?php echo esc_url(WP_VAULT_PLUGIN_URL . 'assets/images/logo.svg'); ?>" alt="WP Vault"
+                    class="wpv-logo" style="width: 32px; height: 32px; margin-right: 10px; vertical-align: middle;" />
+                <?php _e('WP Vault Settings', 'wp-vault'); ?>
+            </h1>
+        </div>
+        <div class="wpv-header-right">
+            <a href="<?php echo admin_url('admin.php?page=wp-vault&tab=settings'); ?>" class="button">
+                <?php _e('View in Dashboard', 'wp-vault'); ?>
+            </a>
+        </div>
+    </div>
 
     <h2 class="nav-tab-wrapper">
         <a href="#general" class="nav-tab nav-tab-active"><?php _e('General', 'wp-vault'); ?></a>
@@ -165,7 +178,7 @@ $file_split_size = get_option('wpv_file_split_size', 200); // Default 200MB
                         <p class="description">
                             <strong><?php _e('Docker:', 'wp-vault'); ?></strong> http://host.docker.internal:3000<br>
                             <strong><?php _e('Host:', 'wp-vault'); ?></strong> http://localhost:3000<br>
-                            <strong><?php _e('Production:', 'wp-vault'); ?></strong> https://api.wpvault.io
+                            <strong><?php _e('Production:', 'wp-vault'); ?></strong> https://api.wpvault.cloud
                         </p>
                     </td>
                 </tr>
@@ -231,159 +244,7 @@ $file_split_size = get_option('wpv_file_split_size', 200); // Default 200MB
             </p>
         </div>
 
-        <div id="storage" class="wpv-tab-content" style="display:none;">
-            <h2><?php _e('Storage Configuration', 'wp-vault'); ?></h2>
-            <table class="form-table">
-                <tr>
-                    <th scope="row"><label for="storage_type"><?php _e('Storage Type', 'wp-vault'); ?></label></th>
-                    <td>
-                        <select name="storage_type" id="storage_type">
-                            <option value="gcs" <?php selected($storage_type, 'gcs'); ?>>
-                                WP Vault Cloud (Google Cloud
-                                Storage)<?php echo $primary_storage === 'gcs' ? ' [PRIMARY]' : ''; ?>
-                            </option>
-                            <option value="s3" <?php selected($storage_type, 's3'); ?>>
-                                Amazon S3 / MinIO / Compatible (BYO
-                                Storage)<?php echo $primary_storage === 's3' ? ' [PRIMARY]' : ''; ?>
-                            </option>
-                            <option value="google-drive" <?php selected($storage_type, 'google-drive'); ?>>
-                                Google Drive<?php echo $primary_storage === 'google-drive' ? ' [PRIMARY]' : ''; ?>
-                            </option>
-                            <option value="ftp" <?php selected($storage_type, 'ftp'); ?>>
-                                FTP<?php echo $primary_storage === 'ftp' ? ' [PRIMARY]' : ''; ?>
-                            </option>
-                            <option value="sftp" <?php selected($storage_type, 'sftp'); ?>>
-                                SFTP<?php echo $primary_storage === 'sftp' ? ' [PRIMARY]' : ''; ?>
-                            </option>
-                        </select>
-                        <p class="description">
-                            <?php _e('Select storage type to configure. Primary storage (marked with [PRIMARY]) is used for all new backups.', 'wp-vault'); ?>
-                        </p>
-                    </td>
-                </tr>
-            </table>
-
-            <!-- GCS Configuration (WP Vault Cloud) -->
-            <div id="gcs-config" class="storage-config"
-                style="<?php echo $storage_type === 'gcs' ? '' : 'display:none;'; ?>">
-                <h3><?php _e('WP Vault Cloud Configuration', 'wp-vault'); ?></h3>
-                <div class="notice notice-info inline">
-                    <p>
-                        <strong><?php _e('WP Vault Cloud', 'wp-vault'); ?></strong><br>
-                        <?php _e('Your backups are automatically stored in WP Vault Cloud (Google Cloud Storage).', 'wp-vault'); ?><br>
-                        <?php _e('No additional configuration needed - just ensure your site is registered above.', 'wp-vault'); ?>
-                    </p>
-                </div>
-                <?php if ($registered): ?>
-                    <p>
-                        <button type="button" id="test-gcs-connection"
-                            class="button"><?php _e('Test Connection', 'wp-vault'); ?></button>
-                        <span id="test-gcs-result"></span>
-                    </p>
-                    <p>
-                        <?php if ($primary_storage !== 'gcs'): ?>
-                        <form method="post" action="" style="display:inline;">
-                            <?php wp_nonce_field('wpv_settings'); ?>
-                            <input type="hidden" name="primary_storage_type" value="gcs">
-                            <button type="submit" name="wpv_make_primary" class="button button-primary">
-                                <?php _e('Make Primary Storage', 'wp-vault'); ?>
-                            </button>
-                        </form>
-                        <span class="description" style="margin-left:8px;">
-                            <?php _e('Set WP Vault Cloud as primary storage for all new backups.', 'wp-vault'); ?>
-                        </span>
-                    <?php else: ?>
-                        <span class="description" style="color:green;">
-                            <strong>✓ <?php _e('Primary Storage', 'wp-vault'); ?></strong> -
-                            <?php _e('All new backups will be stored in WP Vault Cloud.', 'wp-vault'); ?>
-                        </span>
-                    <?php endif; ?>
-                    </p>
-                <?php else: ?>
-                    <p class="description">
-                        <?php _e('Please register your site first to use WP Vault Cloud.', 'wp-vault'); ?>
-                    </p>
-                <?php endif; ?>
-            </div>
-
-            <!-- S3 Configuration -->
-            <div id="s3-config" class="storage-config"
-                style="<?php echo $storage_type === 's3' ? '' : 'display:none;'; ?>">
-                <h3><?php _e('S3 Configuration', 'wp-vault'); ?></h3>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row"><label for="s3_endpoint"><?php _e('S3 Endpoint', 'wp-vault'); ?></label></th>
-                        <td>
-                            <input type="url" name="s3_endpoint" id="s3_endpoint"
-                                value="<?php echo esc_attr(get_option('wpv_s3_endpoint', 'http://minio:9000')); ?>"
-                                class="regular-text">
-                            <p class="description">
-                                <strong><?php _e('Docker:', 'wp-vault'); ?></strong> http://minio:9000 (use service
-                                name)<br>
-                                <strong><?php _e('Host:', 'wp-vault'); ?></strong> http://localhost:9000<br>
-                                <strong><?php _e('AWS:', 'wp-vault'); ?></strong> https://s3.amazonaws.com
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="s3_bucket"><?php _e('Bucket Name', 'wp-vault'); ?></label></th>
-                        <td>
-                            <input type="text" name="s3_bucket" id="s3_bucket"
-                                value="<?php echo esc_attr(get_option('wpv_s3_bucket', 'wp-vault-backups')); ?>"
-                                class="regular-text">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="s3_access_key"><?php _e('Access Key', 'wp-vault'); ?></label></th>
-                        <td>
-                            <input type="text" name="s3_access_key" id="s3_access_key"
-                                value="<?php echo esc_attr(get_option('wpv_s3_access_key', 'minioadmin')); ?>"
-                                class="regular-text">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="s3_secret_key"><?php _e('Secret Key', 'wp-vault'); ?></label></th>
-                        <td>
-                            <input type="password" name="s3_secret_key" id="s3_secret_key"
-                                value="<?php echo esc_attr(get_option('wpv_s3_secret_key', 'minioadmin')); ?>"
-                                class="regular-text">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="s3_region"><?php _e('Region', 'wp-vault'); ?></label></th>
-                        <td>
-                            <input type="text" name="s3_region" id="s3_region"
-                                value="<?php echo esc_attr(get_option('wpv_s3_region', 'us-east-1')); ?>"
-                                class="regular-text">
-                        </td>
-                    </tr>
-                </table>
-                <p>
-                    <button type="button" id="test-s3-connection"
-                        class="button"><?php _e('Test Connection', 'wp-vault'); ?></button>
-                    <span id="test-result"></span>
-                </p>
-                <p>
-                    <?php if ($primary_storage !== 's3'): ?>
-                    <form method="post" action="" style="display:inline;">
-                        <?php wp_nonce_field('wpv_settings'); ?>
-                        <input type="hidden" name="primary_storage_type" value="s3">
-                        <button type="submit" name="wpv_make_primary" class="button button-primary">
-                            <?php _e('Make Primary Storage', 'wp-vault'); ?>
-                        </button>
-                    </form>
-                    <span class="description" style="margin-left:8px;">
-                        <?php _e('Set this S3 storage as primary for all new backups.', 'wp-vault'); ?>
-                    </span>
-                <?php else: ?>
-                    <span class="description" style="color:green;">
-                        <strong>✓ <?php _e('Primary Storage', 'wp-vault'); ?></strong> -
-                        <?php _e('All new backups will be stored here.', 'wp-vault'); ?>
-                    </span>
-                <?php endif; ?>
-                </p>
-            </div>
-        </div>
+        <?php include WP_VAULT_PLUGIN_DIR . 'admin/settings-storage.php'; ?>
 
         <p class="submit">
             <input type="submit" name="wpv_save_settings" class="button button-primary"
@@ -426,94 +287,6 @@ $file_split_size = get_option('wpv_file_split_size', 200); // Default 200MB
                 }
             }).always(function () {
                 $btn.prop('disabled', false).text('<?php _e('Clean Up Old Temp Files', 'wp-vault'); ?>');
-            });
-        });
-
-        // Storage type switching
-        $('#storage_type').on('change', function () {
-            $('.storage-config').hide();
-            $('#' + $(this).val() + '-config').show();
-        });
-
-        // Test GCS connection (WP Vault Cloud)
-        $('#test-gcs-connection').on('click', function () {
-            var $btn = $(this);
-            var $result = $('#test-gcs-result');
-
-            $btn.prop('disabled', true).text('<?php _e('Testing...', 'wp-vault'); ?>');
-            $result.html('');
-
-            $.post(ajaxurl, {
-                action: 'wpv_test_connection',
-                storage_type: 'gcs',
-                nonce: wpVault.nonce
-            }, function (response) {
-                if (response.success && response.data.success) {
-                    $result.html('<span style="color:green">✓ ' + response.data.message + '</span>');
-                    // Auto-select GCS storage type after successful test
-                    $('#storage_type').val('gcs').trigger('change');
-                    // Auto-save storage type preference
-                    $.post(ajaxurl, {
-                        action: 'wpv_save_storage_preference',
-                        storage_type: 'gcs',
-                        nonce: wpVault.nonce
-                    }, function (saveResponse) {
-                        // If no primary storage is set, auto-set this as primary
-                        if (saveResponse.success && saveResponse.data && !saveResponse.data.is_primary) {
-                            var primaryStorage = '<?php echo esc_js($primary_storage); ?>';
-                            if (!primaryStorage || primaryStorage === '') {
-                                // Auto-set as primary via AJAX
-                                $.post(ajaxurl, {
-                                    action: 'wpv_make_primary_storage',
-                                    storage_type: 'gcs',
-                                    nonce: wpVault.nonce
-                                }, function (primaryResponse) {
-                                    if (primaryResponse.success) {
-                                        $result.html('<span style="color:green">✓ ' + response.data.message + '</span><br><span style="color:blue; font-size:11px;">WP Vault Cloud has been set as your primary storage.</span>');
-                                        // Reload page to show updated UI
-                                        setTimeout(function () {
-                                            location.reload();
-                                        }, 1500);
-                                    }
-                                });
-                            }
-                        }
-                    });
-                } else {
-                    $result.html('<span style="color:red">✗ ' + (response.data.error || response.data.message) + '</span>');
-                }
-            }).always(function () {
-                $btn.prop('disabled', false).text('<?php _e('Test Connection', 'wp-vault'); ?>');
-            });
-        });
-
-        // Test S3 connection
-        $('#test-s3-connection').on('click', function () {
-            var $btn = $(this);
-            var $result = $('#test-result');
-
-            $btn.prop('disabled', true).text('<?php _e('Testing...', 'wp-vault'); ?>');
-            $result.html('');
-
-            $.post(ajaxurl, {
-                action: 'wpv_test_connection',
-                storage_type: 's3',
-                config: {
-                    endpoint: $('#s3_endpoint').val(),
-                    bucket: $('#s3_bucket').val(),
-                    access_key: $('#s3_access_key').val(),
-                    secret_key: $('#s3_secret_key').val(),
-                    region: $('#s3_region').val()
-                },
-                nonce: wpVault.nonce
-            }, function (response) {
-                if (response.success && response.data.success) {
-                    $result.html('<span style="color:green">✓ ' + response.data.message + '</span>');
-                } else {
-                    $result.html('<span style="color:red">✗ ' + (response.data.error || response.data.message) + '</span>');
-                }
-            }).always(function () {
-                $btn.prop('disabled', false).text('<?php _e('Test Connection', 'wp-vault'); ?>');
             });
         });
     });

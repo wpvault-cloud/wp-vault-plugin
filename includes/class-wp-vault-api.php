@@ -366,11 +366,334 @@ class WP_Vault_API
     }
 
     /**
+     * Submit file inventory for incremental backup planning
+     * 
+     * @param array $files Array of file info: [{path, size, mtime, fingerprint}, ...]
+     * @return array Response from API
+     */
+    public function submit_inventory($files)
+    {
+        if (!$this->site_id || !$this->site_token) {
+            return array(
+                'success' => false,
+                'error' => 'Site not registered. Please configure WP Vault first.',
+            );
+        }
+
+        $host_class = WP_Vault_Host_Detector::get_host_class();
+
+        $response = wp_remote_post($this->api_endpoint . '/api/v1/inventory', array(
+            'headers' => array('Content-Type' => 'application/json'),
+            'body' => json_encode(array(
+                'site_id' => $this->site_id,
+                'site_token' => $this->site_token,
+                'host_class' => $host_class,
+                'files' => $files
+            )),
+            'timeout' => 60, // Longer timeout for large inventories
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message(),
+            );
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if (isset($body['received']) && $body['received'] === true) {
+            return array(
+                'success' => true,
+                'data' => $body,
+            );
+        }
+
+        return array(
+            'success' => false,
+            'error' => isset($body['error']) ? $body['error'] : 'Inventory submission failed',
+        );
+    }
+
+    /**
+     * Commit snapshot after upload
+     * 
+     * @param string $snapshot_id Snapshot ID
+     * @param array $objects Uploaded objects
+     * @return array Response from API
+     */
+    public function commit_snapshot($snapshot_id, $objects)
+    {
+        if (!$this->site_id || !$this->site_token) {
+            return array(
+                'success' => false,
+                'error' => 'Site not registered. Please configure WP Vault first.',
+            );
+        }
+
+        $response = wp_remote_post($this->api_endpoint . "/api/v1/snapshots/{$snapshot_id}/commit", array(
+            'headers' => array('Content-Type' => 'application/json'),
+            'body' => json_encode(array(
+                'site_token' => $this->site_token,
+                'objects' => $objects
+            )),
+            'timeout' => 30,
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message(),
+            );
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if (isset($body['status']) && $body['status'] === 'committed') {
+            return array(
+                'success' => true,
+                'data' => $body,
+            );
+        }
+
+        return array(
+            'success' => false,
+            'error' => isset($body['error']) ? $body['error'] : 'Snapshot commit failed',
+        );
+    }
+
+    /**
+     * Get restore plan for incremental restore
+     * 
+     * @param string $snapshot_id Snapshot ID to restore
+     * @param string $restore_mode Restore mode
+     * @return array Restore plan
+     */
+    public function get_restore_plan($snapshot_id, $restore_mode = 'full')
+    {
+        if (!$this->site_id || !$this->site_token) {
+            return array(
+                'success' => false,
+                'error' => 'Site not registered. Please configure WP Vault first.',
+            );
+        }
+
+        $response = wp_remote_post($this->api_endpoint . '/api/v1/restore-plan', array(
+            'headers' => array('Content-Type' => 'application/json'),
+            'body' => json_encode(array(
+                'site_id' => $this->site_id,
+                'site_token' => $this->site_token,
+                'snapshot_id' => $snapshot_id,
+                'restore_mode' => $restore_mode
+            )),
+            'timeout' => 30,
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message(),
+            );
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if (isset($body['restore_steps'])) {
+            return array(
+                'success' => true,
+                'data' => $body,
+            );
+        }
+
+        return array(
+            'success' => false,
+            'error' => isset($body['error']) ? $body['error'] : 'Failed to get restore plan',
+        );
+    }
+
+    /**
+     * Get API endpoint
+     * 
+     * @return string API endpoint URL
+     */
+    public function get_api_endpoint()
+    {
+        return $this->api_endpoint;
+    }
+
+    /**
      * Get disk free space in GB
      */
     private function get_disk_free_space()
     {
         $free = @disk_free_space(ABSPATH);
         return $free ? round($free / (1024 * 1024 * 1024), 2) : 0;
+    }
+
+    /**
+     * Get pending backup jobs from SaaS (Hybrid Model - Pull)
+     * 
+     * @param string $site_id
+     * @param string $site_token
+     * @return array|WP_Error
+     */
+    public function get_pending_jobs($site_id, $site_token)
+    {
+        if (!$site_id || !$site_token) {
+            return array('success' => false, 'error' => 'Site not registered');
+        }
+
+        $url = $this->api_endpoint . "/api/v1/sites/{$site_id}/pending-jobs?site_token=" . urlencode($site_token);
+
+        $response = wp_remote_get($url, array(
+            'timeout' => 15,
+            'headers' => array('Content-Type' => 'application/json'),
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message()
+            );
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            return array(
+                'success' => false,
+                'error' => isset($data['error']) ? $data['error'] : 'Unknown error'
+            );
+        }
+
+        return $data;
+    }
+
+    /**
+     * Claim a pending job (prevents multiple instances from picking it up)
+     * 
+     * @param string $site_id
+     * @param string $site_token
+     * @param string $job_id
+     * @return array|WP_Error
+     */
+    public function claim_pending_job($site_id, $site_token, $job_id)
+    {
+        if (!$site_id || !$site_token || !$job_id) {
+            return array('success' => false, 'error' => 'Missing parameters');
+        }
+
+        $url = $this->api_endpoint . "/api/v1/sites/{$site_id}/pending-jobs/{$job_id}/claim?site_token=" . urlencode($site_token);
+
+        $response = wp_remote_post($url, array(
+            'timeout' => 10,
+            'headers' => array('Content-Type' => 'application/json'),
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message()
+            );
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            return array(
+                'success' => false,
+                'error' => isset($data['error']) ? $data['error'] : 'Failed to claim job'
+            );
+        }
+
+        return $data;
+    }
+
+    /**
+     * Get storage configuration from SaaS
+     * 
+     * @return array|WP_Error
+     */
+    public function get_storage_config()
+    {
+        if (!$this->site_id || !$this->site_token) {
+            return array(
+                'success' => false,
+                'error' => 'Site not registered. Please configure WP Vault first.',
+            );
+        }
+
+        $url = $this->api_endpoint . "/api/v1/sites/{$this->site_id}/storage-config?site_token=" . urlencode($this->site_token);
+
+        $response = wp_remote_get($url, array(
+            'timeout' => 10,
+            'headers' => array('Content-Type' => 'application/json'),
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message()
+            );
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            return array(
+                'success' => false,
+                'error' => isset($data['error']) ? $data['error'] : 'Failed to fetch storage configuration'
+            );
+        }
+
+        return $data;
+    }
+
+    /**
+     * Set primary storage for this site
+     * 
+     * @param string $storage_id
+     * @return array|WP_Error
+     */
+    public function set_primary_storage($storage_id)
+    {
+        if (!$this->site_id || !$this->site_token) {
+            return array(
+                'success' => false,
+                'error' => 'Site not registered. Please configure WP Vault first.',
+            );
+        }
+
+        $url = $this->api_endpoint . "/api/v1/sites/{$this->site_id}/primary-storage?site_token=" . urlencode($this->site_token);
+
+        $response = wp_remote_post($url, array(
+            'timeout' => 10,
+            'headers' => array('Content-Type' => 'application/json'),
+            'body' => json_encode(array(
+                'storage_id' => $storage_id,
+            )),
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message()
+            );
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            return array(
+                'success' => false,
+                'error' => isset($data['error']) ? $data['error'] : 'Failed to set primary storage'
+            );
+        }
+
+        return $data;
     }
 }
