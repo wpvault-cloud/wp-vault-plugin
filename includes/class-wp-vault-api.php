@@ -323,7 +323,9 @@ class WP_Vault_API
 
         if (is_wp_error($response)) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Update job API error: ' . $response->get_error_message() . ' URL: ' . $url);
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('[WP Vault] Update job API error: ' . $response->get_error_message() . ' URL: ' . $url);
+                }
             }
             return array('success' => false, 'error' => $response->get_error_message());
         }
@@ -346,7 +348,9 @@ class WP_Vault_API
 
             if (is_wp_error($response)) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Update job API error (PATCH fallback): ' . $response->get_error_message() . ' URL: ' . $url);
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log('[WP Vault] Update job API error (PATCH fallback): ' . $response->get_error_message() . ' URL: ' . $url);
+                    }
                 }
                 return array('success' => false, 'error' => $response->get_error_message());
             }
@@ -357,7 +361,9 @@ class WP_Vault_API
 
         if ($status_code !== 200) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Update job API failed: HTTP ' . $status_code . ' - ' . wp_remote_retrieve_body($response) . ' URL: ' . $url);
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('[WP Vault] Update job API failed: HTTP ' . $status_code . ' - ' . wp_remote_retrieve_body($response) . ' URL: ' . $url);
+                }
             }
             return array('success' => false, 'error' => 'HTTP ' . $status_code . ': ' . ($response_body['error'] ?? 'Unknown error'));
         }

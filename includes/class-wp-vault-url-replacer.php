@@ -22,8 +22,8 @@ class WP_Vault_URL_Replacer
         $this->old_url = rtrim($old_url, '/');
         $this->new_url = rtrim($new_url, '/');
 
-        $old_parsed = parse_url($this->old_url);
-        $new_parsed = parse_url($this->new_url);
+        $old_parsed = wp_parse_url($this->old_url);
+        $new_parsed = wp_parse_url($this->new_url);
 
         $this->old_domain = isset($old_parsed['host']) ? $old_parsed['host'] : '';
         $this->new_domain = isset($new_parsed['host']) ? $new_parsed['host'] : '';

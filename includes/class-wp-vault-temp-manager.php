@@ -127,7 +127,7 @@ class WP_Vault_Temp_Manager
                 if ($entry['is_dir']) {
                     $this->delete_directory($entry['path']);
                 } else {
-                    @unlink($entry['path']);
+                    wp_delete_file($entry['path']);
                 }
                 unset($registry[$key]);
                 $cleaned++;
@@ -152,7 +152,7 @@ class WP_Vault_Temp_Manager
                 if ($entry['is_dir']) {
                     $this->delete_directory($entry['path']);
                 } else {
-                    @unlink($entry['path']);
+                    wp_delete_file($entry['path']);
                 }
                 unset($registry[$key]);
                 $cleaned++;
@@ -246,11 +246,22 @@ class WP_Vault_Temp_Manager
             if (is_dir($path)) {
                 $this->delete_directory($path);
             } else {
-                @unlink($path);
+                wp_delete_file($path);
             }
         }
 
-        @rmdir($dir);
+        // Use WP_Filesystem for directory removal
+        global $wp_filesystem;
+        if (empty($wp_filesystem)) {
+            require_once ABSPATH . '/wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+        if ($wp_filesystem) {
+            $wp_filesystem->rmdir($dir, true);
+        } else {
+            // Fallback if WP_Filesystem is not available
+            @rmdir($dir); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
+        }
     }
 
     /**
@@ -266,7 +277,7 @@ class WP_Vault_Temp_Manager
                 if ($entry['is_dir']) {
                     $this->delete_directory($entry['path']);
                 } else {
-                    @unlink($entry['path']);
+                    wp_delete_file($entry['path']);
                 }
                 $cleaned++;
             }
@@ -274,7 +285,7 @@ class WP_Vault_Temp_Manager
 
         // Clear registry
         if (file_exists($this->registry_file)) {
-            @unlink($this->registry_file);
+            wp_delete_file($this->registry_file);
         }
 
         return $cleaned;

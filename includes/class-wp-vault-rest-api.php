@@ -27,9 +27,13 @@ class WP_Vault_REST_API
         // Debug: Log if registration failed
         if (defined('WP_DEBUG') && WP_DEBUG) {
             if ($result === false) {
-                error_log('WP Vault: Failed to register REST API route /backup/trigger');
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('WP Vault: Failed to register REST API route /backup/trigger');
+                }
             } else {
-                error_log('WP Vault: REST API route /backup/trigger registered successfully');
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('WP Vault: REST API route /backup/trigger registered successfully');
+                }
             }
         }
     }
@@ -131,10 +135,10 @@ class WP_Vault_REST_API
 
         // Trigger backup execution immediately
         // This will be picked up by the existing execute_backup method
-        wp_schedule_single_event(time(), 'wpv_execute_backup', array($backup_id, $backup_type));
+        wp_schedule_single_event(time(), 'wpvault_execute_backup', array($backup_id, $backup_type));
 
         // Also trigger immediately via action hook
-        do_action('wpv_execute_backup', $backup_id, $backup_type);
+        do_action('wpvault_execute_backup', $backup_id, $backup_type);
 
         // Spawn cron to ensure it runs
         spawn_cron();

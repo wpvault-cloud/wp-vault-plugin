@@ -52,7 +52,7 @@ class Storage_Factory
                 return new Adapters\Dropbox_Adapter($config);
 
             default:
-                throw new \Exception("Unsupported storage type: {$type}");
+                throw new \Exception(esc_html("Unsupported storage type: {$type}"));
         }
     }
 

@@ -37,6 +37,7 @@ class WP_Vault_Hasher
         }
 
         // Stream file in chunks
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary file reading for hashing requires direct file access
         $fh = @fopen($file_path, 'rb');
         if ($fh === false) {
             return false;
@@ -44,14 +45,17 @@ class WP_Vault_Hasher
 
         $chunk_size = 8192; // 8KB chunks
         while (!feof($fh)) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Binary file reading for hashing
             $data = @fread($fh, $chunk_size);
             if ($data === false) {
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file reading for hashing
                 fclose($fh);
                 return false;
             }
             hash_update($ctx, $data);
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file reading for hashing
         fclose($fh);
 
         return hash_final($ctx);

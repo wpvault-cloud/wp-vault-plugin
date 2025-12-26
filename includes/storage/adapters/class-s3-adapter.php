@@ -255,8 +255,9 @@ class S3_Adapter implements Storage_Adapter
         $canonical_querystring = '';
         $payload_hash = hash('sha256', $payload);
 
-        $host = parse_url($this->endpoint, PHP_URL_HOST);
-        $port = parse_url($this->endpoint, PHP_URL_PORT);
+        $parsed = wp_parse_url($this->endpoint);
+        $host = isset($parsed['host']) ? $parsed['host'] : '';
+        $port = isset($parsed['port']) ? $parsed['port'] : '';
         if ($port) {
             $host .= ':' . $port;
         }

@@ -46,7 +46,7 @@ class WP_Vault_Zip_Compressor
         $result = $zip->open($archive_path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
 
         if ($result !== true) {
-            throw new \Exception('Failed to create ZIP archive: ' . $result);
+            throw new \Exception(esc_html('Failed to create ZIP archive: ' . $result));
         }
 
         $batch_size = 100; // Process 100 files at a time
@@ -120,7 +120,7 @@ class WP_Vault_Zip_Compressor
             if (file_exists($pclzip_path)) {
                 require_once $pclzip_path;
             } else {
-                throw new \Exception('PclZip library not found. Please install PclZip or enable ZipArchive extension.');
+                throw new \Exception(esc_html('PclZip library not found. Please install PclZip or enable ZipArchive extension.'));
             }
         }
 
@@ -141,7 +141,7 @@ class WP_Vault_Zip_Compressor
         $result = $zip->create($file_list, PCLZIP_OPT_TEMP_FILE_ON);
 
         if ($result === 0) {
-            throw new \Exception('PclZip error: ' . $zip->errorInfo(true));
+            throw new \Exception(esc_html('PclZip error: ' . $zip->errorInfo(true)));
         }
 
         $this->log('Created ZIP archive with PclZip: ' . count($file_list) . ' files');
@@ -171,7 +171,9 @@ class WP_Vault_Zip_Compressor
         if ($this->log_callback && is_callable($this->log_callback)) {
             call_user_func($this->log_callback, $message);
         } else {
-            error_log('[WP Vault ZIP Compressor] ' . $message);
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[WP Vault ZIP Compressor] ' . $message);
+            }
         }
     }
 }

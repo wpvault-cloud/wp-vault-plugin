@@ -12,6 +12,11 @@ if (!defined('ABSPATH')) {
 
 require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
 
+/**
+ * Display backups page
+ */
+function wpvault_display_backups_page() {
+
 // Get backups from SaaS API
 $api = new \WP_Vault\WP_Vault_API();
 $backups_result = $api->get_backups();
@@ -126,7 +131,7 @@ if (is_dir($backup_dir)) {
                 'backup_type' => isset($manifest_data['backup_type']) ? $manifest_data['backup_type'] : 'full',
                 'compression_mode' => isset($manifest_data['compression_mode']) ? $manifest_data['compression_mode'] : 'fast',
                 'total_size' => $actual_total_size > 0 ? $actual_total_size : (isset($manifest_data['total_size']) ? $manifest_data['total_size'] : 0),
-                'created_at' => isset($manifest_data['created_at']) ? $manifest_data['created_at'] : date('Y-m-d H:i:s', filemtime($manifest_file)),
+                'created_at' => isset($manifest_data['created_at']) ? $manifest_data['created_at'] : gmdate('Y-m-d H:i:s', filemtime($manifest_file)),
                 'date' => filemtime($manifest_file),
                 'components' => $components,
                 'files' => $actual_files,
@@ -152,7 +157,7 @@ if (is_dir($backup_dir)) {
                     'backup_type' => 'full',
                     'compression_mode' => 'fast',
                     'total_size' => 0,
-                    'created_at' => date('Y-m-d H:i:s', filemtime($file)),
+                    'created_at' => gmdate('Y-m-d H:i:s', filemtime($file)),
                     'date' => filemtime($file),
                     'components' => array(),
                     'files' => array(),
@@ -210,7 +215,7 @@ if (is_dir($backup_dir)) {
                     'backup_type' => 'full',
                     'compression_mode' => 'fast',
                     'total_size' => filesize($file),
-                    'created_at' => date('Y-m-d H:i:s', filemtime($file)),
+                    'created_at' => gmdate('Y-m-d H:i:s', filemtime($file)),
                     'date' => filemtime($file),
                     'components' => array(),
                     'files' => array(
@@ -340,7 +345,7 @@ foreach ($saas_backups as $backup) {
         'backup_type' => isset($backup['backup_type']) ? $backup['backup_type'] : 'full',
         'status' => isset($backup['status']) ? $backup['status'] : 'unknown',
         'total_size' => isset($backup['total_size_bytes']) ? $backup['total_size_bytes'] : 0,
-        'created_at' => isset($backup['created_at']) ? $backup['created_at'] : (isset($backup['started_at']) ? $backup['started_at'] : date('Y-m-d H:i:s')),
+        'created_at' => isset($backup['created_at']) ? $backup['created_at'] : (isset($backup['started_at']) ? $backup['started_at'] : gmdate('Y-m-d H:i:s')),
         'date' => isset($backup['finished_at']) ? strtotime($backup['finished_at']) : (isset($backup['created_at']) ? strtotime($backup['created_at']) : time()),
         'source' => 'saas',
         'files' => $files,
@@ -362,15 +367,15 @@ usort($all_backups, function ($a, $b) {
     return $b['date'] - $a['date'];
 });
 
-$backups = $all_backups;
-?>
+    $backups = $all_backups;
+    ?>
 
-<div class="wrap">
-    <h1><?php _e('WP Vault Backups', 'wp-vault'); ?></h1>
+    <div class="wrap">
+    <h1><?php esc_html_e('WP Vault Backups', 'wp-vault'); ?></h1>
 
     <?php if (empty($backups)): ?>
         <div class="notice notice-info">
-            <p><?php _e('No backups found. Create a backup from the Dashboard to get started.', 'wp-vault'); ?></p>
+            <p><?php esc_html_e('No backups found. Create a backup from the Dashboard to get started.', 'wp-vault'); ?></p>
         </div>
     <?php else: ?>
         <p><?php
@@ -381,11 +386,14 @@ $backups = $all_backups;
             return !isset($b['source']) || $b['source'] === 'local';
         }));
         if ($saas_count > 0 && $local_count > 0) {
-            printf(__('Found %d backup(s): %d in cloud, %d local', 'wp-vault'), count($backups), $saas_count, $local_count);
+            /* translators: 1: total backup count, 2: cloud backup count, 3: local backup count */
+            printf(esc_html__('Found %1$d backup(s): %2$d in cloud, %3$d local', 'wp-vault'), count($backups), absint($saas_count), absint($local_count));
         } elseif ($saas_count > 0) {
-            printf(__('Found %d backup(s) stored in cloud', 'wp-vault'), count($backups));
+            /* translators: %d: number of backups */
+            printf(esc_html__('Found %d backup(s) stored in cloud', 'wp-vault'), count($backups));
         } else {
-            printf(__('Found %d local backup(s) stored in %s', 'wp-vault'), count($backups), '<code>wp-content/wp-vault-backups/</code>');
+            /* translators: 1: number of backups, 2: directory path */
+            printf(esc_html__('Found %1$d local backup(s) stored in %2$s', 'wp-vault'), count($backups), '<code>wp-content/wp-vault-backups/</code>');
         }
         ?>
         </p>
@@ -394,11 +402,11 @@ $backups = $all_backups;
             <thead>
                 <tr>
                     <th style="width:30px;"></th>
-                    <th><?php _e('Backup', 'wp-vault'); ?></th>
-                    <th><?php _e('Size', 'wp-vault'); ?></th>
-                    <th><?php _e('Components', 'wp-vault'); ?></th>
-                    <th><?php _e('Date', 'wp-vault'); ?></th>
-                    <th><?php _e('Actions', 'wp-vault'); ?></th>
+                    <th><?php esc_html_e('Backup', 'wp-vault'); ?></th>
+                    <th><?php esc_html_e('Size', 'wp-vault'); ?></th>
+                    <th><?php esc_html_e('Components', 'wp-vault'); ?></th>
+                    <th><?php esc_html_e('Date', 'wp-vault'); ?></th>
+                    <th><?php esc_html_e('Actions', 'wp-vault'); ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -435,7 +443,7 @@ $backups = $all_backups;
                         <td>
                             <?php if ($has_components): ?>
                                 <span class="wpv-expand-toggle dashicons dashicons-arrow-right" style="cursor:pointer; color:#666;"
-                                    title="<?php _e('Click to expand/collapse', 'wp-vault'); ?>"></span>
+                                    title="<?php esc_attr_e('Click to expand/collapse', 'wp-vault'); ?>"></span>
                             <?php endif; ?>
                         </td>
                         <td>
@@ -449,7 +457,7 @@ $backups = $all_backups;
                             <?php endif; ?>
                         </td>
                         <td>
-                            <strong><?php echo size_format($total_size); ?></strong>
+                            <strong><?php echo esc_html(size_format($total_size)); ?></strong>
                             <?php if (isset($backup['status'])): ?>
                                 <br><span class="wpv-status wpv-status-<?php echo esc_attr($backup['status']); ?>"
                                     style="font-size:11px; margin-top:3px; display:inline-block;">
@@ -461,13 +469,13 @@ $backups = $all_backups;
                             <?php
                             $component_count = count($backup['components']);
                             if ($component_count > 0) {
-                                echo $component_count . ' ' . _n('component', 'components', $component_count, 'wp-vault');
+                                echo absint($component_count) . ' ' . esc_html(_n('component', 'components', $component_count, 'wp-vault'));
                             } else {
-                                echo '1 ' . __('file', 'wp-vault');
+                                echo '1 ' . esc_html__('file', 'wp-vault');
                             }
                             ?>
                         </td>
-                        <td><?php echo esc_html(date('M j, Y g:i a', $backup_date)); ?></td>
+                        <td><?php echo esc_html(gmdate('M j, Y g:i a', $backup_date)); ?></td>
                         <td>
                             <?php
                             // Use first file for restore (or manifest if available)
@@ -488,15 +496,15 @@ $backups = $all_backups;
                                 data-backup-id="<?php echo esc_attr($backup_id); ?>"
                                 data-backup-file="<?php echo esc_attr($primary_file); ?>"
                                 data-backup-path="<?php echo esc_attr($primary_path); ?>">
-                                <?php _e('Restore', 'wp-vault'); ?>
+                                <?php esc_html_e('Restore', 'wp-vault'); ?>
                             </button>
                             <button class="button wpv-download-backup-btn" data-backup-id="<?php echo esc_attr($backup_id); ?>"
                                 style="margin-left: 5px;">
-                                <?php _e('Download', 'wp-vault'); ?>
+                                <?php esc_html_e('Download', 'wp-vault'); ?>
                             </button>
                             <button class="button wpv-delete-backup-btn" data-backup-id="<?php echo esc_attr($backup_id); ?>"
                                 style="margin-left: 5px;">
-                                <?php _e('Delete', 'wp-vault'); ?>
+                                <?php esc_html_e('Delete', 'wp-vault'); ?>
                             </button>
                         </td>
                     </tr>
@@ -508,10 +516,10 @@ $backups = $all_backups;
                                 <table class="wp-list-table widefat" style="margin:10px 0; background:#f9f9f9;">
                                     <thead>
                                         <tr>
-                                            <th style="padding:8px;"><?php _e('Component', 'wp-vault'); ?></th>
-                                            <th style="padding:8px;"><?php _e('File', 'wp-vault'); ?></th>
-                                            <th style="padding:8px;"><?php _e('Size', 'wp-vault'); ?></th>
-                                            <th style="padding:8px;"><?php _e('Actions', 'wp-vault'); ?></th>
+                                            <th style="padding:8px;"><?php esc_html_e('Component', 'wp-vault'); ?></th>
+                                            <th style="padding:8px;"><?php esc_html_e('File', 'wp-vault'); ?></th>
+                                            <th style="padding:8px;"><?php esc_html_e('Size', 'wp-vault'); ?></th>
+                                            <th style="padding:8px;"><?php esc_html_e('Actions', 'wp-vault'); ?></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -593,23 +601,23 @@ $backups = $all_backups;
                                                                 <br><small style="color:#2271b1;">☁️ Cloud Storage</small>
                                                             <?php endif; ?>
                                                         </td>
-                                                        <td style="padding:8px;"><?php echo size_format($display_size); ?></td>
+                                                        <td style="padding:8px;"><?php echo esc_html(size_format($display_size)); ?></td>
                                                         <td style="padding:8px;">
                                                             <?php if ($is_cloud): ?>
                                                                 <span
-                                                                    style="color:#666; font-size:11px;"><?php _e('Stored in cloud', 'wp-vault'); ?></span>
+                                                                    style="color:#666; font-size:11px;"><?php esc_html_e('Stored in cloud', 'wp-vault'); ?></span>
                                                             <?php else: ?>
                                                                 <?php
                                                                 // For local backups, check if file exists
                                                                 $local_file_path = isset($file_info['path']) ? $file_info['path'] : $backup_dir . $display_filename;
                                                                 if (file_exists($local_file_path)): ?>
-                                                                    <a href="<?php echo admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($display_filename) . '&nonce=' . wp_create_nonce('wp-vault')); ?>"
+                                                                    <a href="<?php echo esc_url(admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($display_filename) . '&nonce=' . wp_create_nonce('wp-vault'))); ?>"
                                                                         class="button button-small">
-                                                                        <?php _e('Download', 'wp-vault'); ?>
+                                                                        <?php esc_html_e('Download', 'wp-vault'); ?>
                                                                     </a>
                                                                 <?php else: ?>
                                                                     <span
-                                                                        style="color:#999; font-size:11px;"><?php _e('File not found', 'wp-vault'); ?></span>
+                                                                        style="color:#999; font-size:11px;"><?php esc_html_e('File not found', 'wp-vault'); ?></span>
                                                                 <?php endif; ?>
                                                             <?php endif; ?>
                                                         </td>
@@ -623,14 +631,14 @@ $backups = $all_backups;
                                                 $file_path = isset($file['path']) ? $file['path'] : $backup_dir . $file['filename'];
                                                 ?>
                                                 <tr>
-                                                    <td style="padding:8px;"><?php _e('File', 'wp-vault'); ?></td>
+                                                    <td style="padding:8px;"><?php esc_html_e('File', 'wp-vault'); ?></td>
                                                     <td style="padding:8px;"><code
                                                             style="font-size:11px;"><?php echo esc_html($file['filename']); ?></code></td>
-                                                    <td style="padding:8px;"><?php echo size_format($file['size']); ?></td>
+                                                    <td style="padding:8px;"><?php echo esc_html(size_format($file['size'])); ?></td>
                                                     <td style="padding:8px;">
-                                                        <a href="<?php echo admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($file['filename']) . '&nonce=' . wp_create_nonce('wp-vault')); ?>"
+                                                        <a href="<?php echo esc_url(admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($file['filename']) . '&nonce=' . wp_create_nonce('wp-vault'))); ?>"
                                                             class="button button-small">
-                                                            <?php _e('Download', 'wp-vault'); ?>
+                                                            <?php esc_html_e('Download', 'wp-vault'); ?>
                                                         </a>
                                                     </td>
                                                 </tr>
@@ -653,96 +661,96 @@ $backups = $all_backups;
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999;">
         <div
             style="background:#fff; width:600px; max-height:90vh; overflow-y:auto; margin:50px auto; padding:20px; border-radius:5px; box-shadow:0 0 10px rgba(0,0,0,0.3);">
-            <h3 style="margin-top:0;"><?php _e('Restore Options', 'wp-vault'); ?></h3>
+            <h3 style="margin-top:0;"><?php esc_html_e('Restore Options', 'wp-vault'); ?></h3>
             <p style="color:#666; margin-top:5px;">
-                <?php _e('Select what you want to restore and configure restore options.', 'wp-vault'); ?>
+                <?php esc_html_e('Select what you want to restore and configure restore options.', 'wp-vault'); ?>
             </p>
 
             <div style="margin:20px 0;">
-                <h4 style="margin-bottom:10px;"><?php _e('Components to Restore', 'wp-vault'); ?></h4>
+                <h4 style="margin-bottom:10px;"><?php esc_html_e('Components to Restore', 'wp-vault'); ?></h4>
                 <div style="margin-left:10px;">
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_component" value="database" checked
                             style="margin-right:8px;">
-                        <strong><?php _e('Database', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Database', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Restore all database tables', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Restore all database tables', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_component" value="themes" checked
                             style="margin-right:8px;">
-                        <strong><?php _e('Themes', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Themes', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Restore theme files', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Restore theme files', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_component" value="plugins" checked
                             style="margin-right:8px;">
-                        <strong><?php _e('Plugins', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Plugins', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Restore plugin files', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Restore plugin files', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_component" value="uploads" checked
                             style="margin-right:8px;">
-                        <strong><?php _e('Uploads', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Uploads', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Restore media and uploads', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Restore media and uploads', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_component" value="wp-content" checked
                             style="margin-right:8px;">
-                        <strong><?php _e('WP-Content (Other)', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('WP-Content (Other)', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Restore other wp-content files', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Restore other wp-content files', 'wp-vault'); ?></span>
                     </label>
                 </div>
             </div>
 
             <div style="margin:20px 0; padding-top:20px; border-top:1px solid #e2e4e7;">
-                <h4 style="margin-bottom:10px;"><?php _e('Advanced Options', 'wp-vault'); ?></h4>
+                <h4 style="margin-bottom:10px;"><?php esc_html_e('Advanced Options', 'wp-vault'); ?></h4>
                 <div style="margin-left:10px;">
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_option" value="reset_directories"
                             style="margin-right:8px;">
-                        <strong><?php _e('Reset Directories', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Reset Directories', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Delete existing directories before restore (clean install)', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Delete existing directories before restore (clean install)', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_option" value="replace_urls" style="margin-right:8px;">
-                        <strong><?php _e('Replace URLs', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Replace URLs', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Replace old URLs with current site URL (for migration)', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Replace old URLs with current site URL (for migration)', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_option" value="deactivate_plugins"
                             style="margin-right:8px;">
-                        <strong><?php _e('Deactivate Plugins', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Deactivate Plugins', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Deactivate all plugins before restore (except WP-Vault)', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Deactivate all plugins before restore (except WP-Vault)', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_option" value="switch_theme" style="margin-right:8px;">
-                        <strong><?php _e('Switch to Default Theme', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Switch to Default Theme', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Switch to default theme before restore', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Switch to default theme before restore', 'wp-vault'); ?></span>
                     </label>
                     <label style="display:block; margin:8px 0;">
                         <input type="checkbox" name="restore_option" value="pre_restore_backup" checked
                             style="margin-right:8px;">
-                        <strong><?php _e('Create Pre-Restore Backup', 'wp-vault'); ?></strong>
+                        <strong><?php esc_html_e('Create Pre-Restore Backup', 'wp-vault'); ?></strong>
                         <span style="color:#666; font-size:12px;"> -
-                            <?php _e('Create backup of current site before restoring (recommended)', 'wp-vault'); ?></span>
+                            <?php esc_html_e('Create backup of current site before restoring (recommended)', 'wp-vault'); ?></span>
                     </label>
                 </div>
             </div>
 
             <div style="margin-top:25px; text-align:right; border-top:1px solid #e2e4e7; padding-top:15px;">
                 <button type="button" class="button" id="wpv-cancel-restore-options"
-                    style="margin-right:10px;"><?php _e('Cancel', 'wp-vault'); ?></button>
+                    style="margin-right:10px;"><?php esc_html_e('Cancel', 'wp-vault'); ?></button>
                 <button type="button" class="button button-primary" id="wpv-confirm-restore-options">
-                    <?php _e('Start Restore', 'wp-vault'); ?>
+                    <?php esc_html_e('Start Restore', 'wp-vault'); ?>
                 </button>
             </div>
         </div>
@@ -753,7 +761,7 @@ $backups = $all_backups;
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999;">
         <div
             style="background:#fff; width:500px; margin:100px auto; padding:20px; border-radius:5px; box-shadow:0 0 10px rgba(0,0,0,0.3);">
-            <h3 style="margin-top:0;"><?php _e('Restore in Progress...', 'wp-vault'); ?></h3>
+            <h3 style="margin-top:0;"><?php esc_html_e('Restore in Progress...', 'wp-vault'); ?></h3>
 
             <div class="wpv-progress-bar"
                 style="background:#f0f0f0; height:20px; border-radius:10px; overflow:hidden; margin:15px 0;">
@@ -773,7 +781,7 @@ $backups = $all_backups;
 
             <div id="wpv-restore-modal-actions" style="margin-top:20px; text-align:right; display:none;">
                 <button class="button button-primary"
-                    onclick="location.reload()"><?php _e('Close & Refresh', 'wp-vault'); ?></button>
+                    onclick="location.reload()"><?php esc_html_e('Close & Refresh', 'wp-vault'); ?></button>
             </div>
         </div>
     </div>
@@ -852,7 +860,7 @@ $backups = $all_backups;
                 });
 
                 if (components.length === 0) {
-                    alert('<?php _e('Please select at least one component to restore.', 'wp-vault'); ?>');
+                    alert('<?php echo esc_js(esc_html__('Please select at least one component to restore.', 'wp-vault')); ?>');
                     return;
                 }
 
@@ -880,8 +888,8 @@ $backups = $all_backups;
                 $('#wpv-restore-modal').show();
                 $('#wpv-restore-progress-fill').css('width', '0%');
                 $('#wpv-restore-progress-text').text('0%');
-                $('#wpv-restore-progress-message').text('<?php _e('Starting restore...', 'wp-vault'); ?>');
-                $('#wpv-restore-log-feed').html('<div style="color:#888;"><?php _e('Waiting for logs...', 'wp-vault'); ?></div>');
+                $('#wpv-restore-progress-message').text('<?php echo esc_js(esc_html__('Starting restore...', 'wp-vault')); ?>');
+                $('#wpv-restore-log-feed').html('<div style="color:#888;"><?php echo esc_js(esc_html__('Waiting for logs...', 'wp-vault')); ?></div>');
                 $('#wpv-restore-modal-actions').hide();
 
                 // Start restore with options
@@ -899,11 +907,11 @@ $backups = $all_backups;
                         var restoreId = response.data.restore_id;
                         pollRestoreProgress(restoreId);
                     } else {
-                        alert('<?php _e('Restore failed to start:', 'wp-vault'); ?> ' + (response.data.error || '<?php _e('Unknown error', 'wp-vault'); ?>'));
+                        alert('<?php echo esc_js(esc_html__('Restore failed to start:', 'wp-vault')); ?> ' + (response.data.error || '<?php echo esc_js(esc_html__('Unknown error', 'wp-vault')); ?>'));
                         $('#wpv-restore-modal').hide();
                     }
                 }).fail(function () {
-                    alert('<?php _e('Network error starting restore', 'wp-vault'); ?>');
+                    alert('<?php echo esc_js(esc_html__('Network error starting restore', 'wp-vault')); ?>');
                     $('#wpv-restore-modal').hide();
                 });
             });
@@ -935,7 +943,7 @@ $backups = $all_backups;
 
             // Delete backup (all components)
             $('.wpv-delete-backup-btn').on('click', function () {
-                if (!confirm('<?php _e('Are you sure you want to delete this backup and all its components?', 'wp-vault'); ?>')) {
+                if (!confirm('<?php echo esc_js(esc_html__('Are you sure you want to delete this backup and all its components?', 'wp-vault')); ?>')) {
                     return;
                 }
 
@@ -953,7 +961,7 @@ $backups = $all_backups;
                             $(this).remove();
                         });
                     } else {
-                        alert('<?php _e('Failed to delete backup:', 'wp-vault'); ?> ' + (response.data.error || '<?php _e('Unknown error', 'wp-vault'); ?>'));
+                        alert('<?php echo esc_js(esc_html__('Failed to delete backup:', 'wp-vault')); ?> ' + (response.data.error || '<?php echo esc_js(esc_html__('Unknown error', 'wp-vault')); ?>'));
                     }
                 });
             });
@@ -986,7 +994,7 @@ $backups = $all_backups;
 
                                 if (status === 'completed') {
                                     $('#wpv-restore-progress-fill').css('background', '#46b450');
-                                    $('#wpv-restore-progress-message').text('<?php _e('Restore completed successfully!', 'wp-vault'); ?>');
+                                    $('#wpv-restore-progress-message').text('<?php echo esc_js(esc_html__('Restore completed successfully!', 'wp-vault')); ?>');
                                     setTimeout(function () {
                                         $('#wpv-restore-modal').hide();
                                         location.reload();
@@ -1022,3 +1030,9 @@ $backups = $all_backups;
         });
     </script>
 </div>
+    <?php
+}
+
+// Call the function to display the backups page
+wpvault_display_backups_page();
+?>

@@ -35,10 +35,11 @@ class WP_Vault_Log
 
         // Delete existing log if it exists (fresh start)
         if (file_exists($this->log_file)) {
-            @unlink($this->log_file);
+            wp_delete_file($this->log_file);
         }
 
         // Open file for appending
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Log file operations require direct file access for performance
         $this->log_file_handle = @fopen($this->log_file, 'a');
 
         if ($this->log_file_handle) {
@@ -48,6 +49,7 @@ class WP_Vault_Log
             $text = 'Log created: ' . $time . "\n";
             $text .= 'Type: ' . ucfirst($job_type) . "\n";
             $text .= 'Job ID: ' . $job_id . "\n";
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Log file operations require direct file access for performance
             fwrite($this->log_file_handle, $text);
 
             // Write server information
@@ -68,6 +70,7 @@ class WP_Vault_Log
         $this->log_file = $log_file_path;
 
         if (file_exists($this->log_file)) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Log file operations require direct file access for performance
             $this->log_file_handle = @fopen($this->log_file, 'a');
         }
 
@@ -86,6 +89,7 @@ class WP_Vault_Log
             $offset = get_option('gmt_offset');
             $time = gmdate("Y-m-d H:i:s", time() + $offset * 60 * 60);
             $text = '[' . $time . '][' . strtoupper($level) . '] ' . $message . "\n";
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Log file operations require direct file access for performance
             fwrite($this->log_file_handle, $text);
             fflush($this->log_file_handle); // Ensure immediate write
         }
@@ -97,6 +101,7 @@ class WP_Vault_Log
     public function close_file()
     {
         if ($this->log_file_handle) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Log file operations require direct file access for performance
             fclose($this->log_file_handle);
             $this->log_file_handle = false;
         }
@@ -185,6 +190,7 @@ class WP_Vault_Log
         $offset = get_option('gmt_offset');
         $time = gmdate("Y-m-d H:i:s", time() + $offset * 60 * 60);
         $text = '[' . $time . '][NOTICE] ' . $log . "\n";
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Log file operations require direct file access for performance
         fwrite($this->log_file_handle, $text);
     }
 

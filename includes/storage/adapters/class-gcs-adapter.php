@@ -219,7 +219,9 @@ class GCS_Adapter implements Storage_Adapter
             }
         } catch (\Exception $e) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault GCS] Test connection error: ' . $e->getMessage());
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('[WP Vault GCS] Test connection error: ' . $e->getMessage());
+                }
             }
             return array(
                 'success' => false,
@@ -228,7 +230,9 @@ class GCS_Adapter implements Storage_Adapter
         } catch (\Error $e) {
             // Catch fatal errors (like calling non-existent method)
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault GCS] Test connection fatal error: ' . $e->getMessage());
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('[WP Vault GCS] Test connection fatal error: ' . $e->getMessage());
+                }
             }
             return array(
                 'success' => false,

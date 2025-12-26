@@ -66,6 +66,7 @@ class WP_Vault_Chunk_Processor
     {
         $start_time = time();
         $chunk_size_bytes = 5 * 1024 * 1024; // 5MB
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- SQL file streaming requires direct file access with fseek() support
         $handle = fopen($sql_file, 'r');
 
         if (!$handle) {
@@ -81,6 +82,7 @@ class WP_Vault_Chunk_Processor
         $queries_processed = 0;
 
         while (!feof($handle) && (time() - $start_time) < $this->max_execution_time) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- SQL file streaming requires chunked reading
             $chunk = fread($handle, $chunk_size_bytes);
             if ($chunk === false) {
                 break;
@@ -102,6 +104,7 @@ class WP_Vault_Chunk_Processor
         }
 
         $current_offset = ftell($handle);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- SQL file streaming requires direct file access
         fclose($handle);
 
         // Save progress

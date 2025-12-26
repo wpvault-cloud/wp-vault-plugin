@@ -74,7 +74,7 @@ class WP_Vault_Incremental_Uploader
                         ];
 
                         // Clean up local archive
-                        @unlink($archive_path);
+                        wp_delete_file($archive_path);
                     }
                 }
             }
@@ -95,7 +95,7 @@ class WP_Vault_Incremental_Uploader
                     'size' => filesize($db_archive)
                 ];
 
-                @unlink($db_archive);
+                wp_delete_file($db_archive);
             }
         }
 
@@ -151,17 +151,17 @@ class WP_Vault_Incremental_Uploader
         }
 
         // Create tar file first, then compress to .tar.gz
-        $archive_name_tar = $component . '-' . $this->backup_id . '-' . date('Y-m-d-His') . '.tar';
+        $archive_name_tar = $component . '-' . $this->backup_id . '-' . gmdate('Y-m-d-His') . '.tar';
         $archive_name_gz = $archive_name_tar . '.gz';
         $archive_path_tar = $backup_dir . $archive_name_tar;
         $archive_path_gz = $backup_dir . $archive_name_gz;
 
         // Remove any existing files with these names
         if (file_exists($archive_path_tar)) {
-            @unlink($archive_path_tar);
+            wp_delete_file($archive_path_tar);
         }
         if (file_exists($archive_path_gz)) {
-            @unlink($archive_path_gz);
+            wp_delete_file($archive_path_gz);
         }
 
         // Use PharData for tar.gz creation
@@ -181,23 +181,23 @@ class WP_Vault_Incremental_Uploader
 
             // Remove uncompressed tar file
             if (file_exists($archive_path_tar)) {
-                @unlink($archive_path_tar);
+                wp_delete_file($archive_path_tar);
             }
 
             // Verify the compressed file exists
             if (file_exists($archive_path_gz)) {
                 return $archive_path_gz;
             } else {
-                throw new \Exception('Compressed archive file was not created');
+                throw new \Exception(esc_html('Compressed archive file was not created'));
             }
         } catch (\Exception $e) {
             $this->log->write_log('Failed to package component: ' . $e->getMessage(), 'error');
             // Clean up on error
             if (file_exists($archive_path_tar)) {
-                @unlink($archive_path_tar);
+                wp_delete_file($archive_path_tar);
             }
             if (file_exists($archive_path_gz)) {
-                @unlink($archive_path_gz);
+                wp_delete_file($archive_path_gz);
             }
             return false;
         }
@@ -215,7 +215,7 @@ class WP_Vault_Incremental_Uploader
             wp_mkdir_p($backup_dir);
         }
 
-        $db_file = $backup_dir . 'database-' . $this->backup_id . '-' . date('Y-m-d-His') . '.sql';
+        $db_file = $backup_dir . 'database-' . $this->backup_id . '-' . gmdate('Y-m-d-His') . '.sql';
         $db_file_gz = $db_file . '.gz';
 
         global $wpdb;
@@ -237,7 +237,7 @@ class WP_Vault_Incremental_Uploader
                 $gz = gzopen($db_file_gz, 'w9');
                 gzwrite($gz, file_get_contents($db_file));
                 gzclose($gz);
-                @unlink($db_file);
+                wp_delete_file($db_file);
 
                 if (file_exists($db_file_gz)) {
                     $this->log->write_log('Database exported using mysqldump', 'info');
@@ -266,7 +266,8 @@ class WP_Vault_Incremental_Uploader
             }
 
             // Get table structure
-            $create_table = $wpdb->get_row("SHOW CREATE TABLE `{$table}`", ARRAY_N);
+            $table_escaped = esc_sql($table);
+            $create_table = $wpdb->get_row($wpdb->prepare("SHOW CREATE TABLE `%s`", $table_escaped), ARRAY_N);
             if ($create_table) {
                 $sql .= "\n\n-- Table structure for `{$table}`\n";
                 $sql .= "DROP TABLE IF EXISTS `{$table}`;\n";
@@ -274,7 +275,7 @@ class WP_Vault_Incremental_Uploader
             }
 
             // Get table data
-            $rows = $wpdb->get_results("SELECT * FROM `{$table}`", ARRAY_A);
+            $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM `%s`", $table_escaped), ARRAY_A);
             if (!empty($rows)) {
                 $sql .= "-- Data for table `{$table}`\n";
                 foreach ($rows as $row) {
@@ -293,7 +294,7 @@ class WP_Vault_Incremental_Uploader
         $gz = gzopen($db_file_gz, 'w9');
         gzwrite($gz, file_get_contents($db_file));
         gzclose($gz);
-        @unlink($db_file);
+        wp_delete_file($db_file);
 
         if (file_exists($db_file_gz)) {
             $this->log->write_log('Database exported successfully', 'info');
@@ -348,7 +349,7 @@ class WP_Vault_Incremental_Uploader
         // Extract object key from signed URL
         // GCS signed URL format: https://storage.googleapis.com/bucket-name/path/to/file?signature...
         // We need to extract just the path (without bucket name)
-        $parsed_url = parse_url($upload_url);
+        $parsed_url = wp_parse_url($upload_url);
         $full_path = ltrim($parsed_url['path'], '/');
 
         // Remove query parameters

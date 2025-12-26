@@ -153,7 +153,7 @@ class WP_Vault_Restore_Engine
                     $archive_path = $this->backup_dir . basename($this->backup_file);
                     if (!file_exists($archive_path)) {
                         $this->log_php('[WP Vault] ERROR: Backup file not found: ' . $this->backup_file);
-                        throw new \Exception('Backup file not found: ' . $this->backup_file);
+                        throw new \Exception(esc_html('Backup file not found: ' . $this->backup_file));
                     }
                 }
                 $archive_paths = array($archive_path);
@@ -286,7 +286,7 @@ class WP_Vault_Restore_Engine
             $target_path = $extract_dir . $basename;
             $this->log_php('[WP Vault] Detected database file, copying (not extracting): ' . $basename);
             if (!copy($archive_path, $target_path)) {
-                throw new \Exception('Failed to copy database file: ' . $basename);
+                throw new \Exception(esc_html('Failed to copy database file: ' . $basename));
             }
             $this->log('Copied database file: ' . $basename);
             $this->log_php('[WP Vault] Database file copied successfully: ' . $basename);
@@ -315,7 +315,7 @@ class WP_Vault_Restore_Engine
                     $zip->close();
                     $this->log_php('[WP Vault] Successfully extracted .zip archive');
                 } else {
-                    throw new \Exception('Failed to open ZIP archive');
+                    throw new \Exception(esc_html('Failed to open ZIP archive'));
                 }
             } elseif ($extension === 'gz' && !$is_tar_gz) {
                 // This might be a standalone .gz file (not tar.gz)
@@ -326,10 +326,10 @@ class WP_Vault_Restore_Engine
                     copy($archive_path, $target_path);
                     $this->log_php('[WP Vault] Copied standalone .gz database file');
                 } else {
-                    throw new \Exception('Unsupported .gz file format (not tar.gz and not database): ' . $basename);
+                    throw new \Exception(esc_html('Unsupported .gz file format (not tar.gz and not database): ' . $basename));
                 }
             } else {
-                throw new \Exception('Unsupported archive format: ' . $extension . ' for file: ' . $basename);
+                throw new \Exception(esc_html('Unsupported archive format: ' . $extension . ' for file: ' . $basename));
             }
 
             $this->log('Extracted: ' . $basename);
@@ -345,13 +345,13 @@ class WP_Vault_Restore_Engine
                     $phar = new \PharData($tar_path);
                     $phar->extractTo($extract_dir, null, true);
                     if (file_exists($tar_path)) {
-                        unlink($tar_path);
+                        wp_delete_file($tar_path);
                     }
                     $this->log_php('[WP Vault] Successfully extracted using fallback method');
                     $this->log('Extracted (decompressed): ' . $basename);
                 } catch (\Exception $e2) {
                     $this->log_php('[WP Vault] ERROR in fallback extraction: ' . $e2->getMessage());
-                    throw new \Exception('Extraction failed for ' . $basename . ': ' . $e->getMessage() . ' / ' . $e2->getMessage());
+                    throw new \Exception(esc_html('Extraction failed for ' . $basename . ': ' . $e->getMessage() . ' / ' . $e2->getMessage()));
                 }
             } else {
                 throw $e;
@@ -576,7 +576,7 @@ class WP_Vault_Restore_Engine
             if (is_dir($path)) {
                 $this->delete_directory($path);
             } else {
-                @unlink($path);
+                wp_delete_file($path);
             }
         }
     }
@@ -683,8 +683,9 @@ class WP_Vault_Restore_Engine
         if ($this->restore_id) {
             global $wpdb;
             $table = $wpdb->prefix . 'wp_vault_jobs';
+            $table_escaped = esc_sql($table);
             $job = $wpdb->get_row($wpdb->prepare(
-                "SELECT current_offset FROM $table WHERE backup_id = %s",
+                "SELECT current_offset FROM {$table_escaped} WHERE backup_id = %s",
                 $this->restore_id
             ));
             if ($job && isset($job->current_offset)) {
@@ -692,9 +693,10 @@ class WP_Vault_Restore_Engine
             }
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- SQL file reading requires direct file access for streaming
         $handle = fopen($sql_file, 'r');
         if (!$handle) {
-            throw new \Exception('Could not open SQL file for reading');
+            throw new \Exception(esc_html('Could not open SQL file for reading'));
         }
 
         // Seek to offset if resuming
@@ -724,6 +726,7 @@ class WP_Vault_Restore_Engine
                 }
 
                 // Read chunk
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- SQL file reading requires direct file access for streaming
                 $chunk = fread($handle, $chunk_size);
                 if ($chunk === false) {
                     break;
@@ -789,13 +792,15 @@ class WP_Vault_Restore_Engine
                     if (preg_match('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[`"])?(' . preg_quote($temp_prefix, '/') . '[a-zA-Z0-9_]+)(?:[`"])?/i', $transformed_query, $matches)) {
                         $temp_table_name = $matches[1]; // Get table name (already without backticks from regex)
                         // Drop the table if it exists (from a previous failed restore)
-                        $drop_result = $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_name}`");
+                        $temp_table_name_escaped = esc_sql($temp_table_name);
+                        $drop_result = $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_name_escaped}`");
                         if ($drop_result !== false) {
                             $this->log_php('[WP Vault] Dropped existing temp table (if any): ' . $temp_table_name);
                         }
                     }
 
                     // Execute query
+                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $transformed_query is dynamically constructed SQL that cannot use placeholders
                     $result = $wpdb->query($transformed_query);
 
                     if ($result === false && !empty($wpdb->last_error)) {
@@ -805,8 +810,10 @@ class WP_Vault_Restore_Engine
                             // Try to drop and retry if it's a CREATE TABLE query
                             if ($temp_table_name) {
                                 $this->log_php('[WP Vault] Attempting to force drop and retry: ' . $temp_table_name);
-                                $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_name}`");
+                                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- DROP TABLE with escaped table name
+                                $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_name_escaped}`");
                                 // Retry the query
+                                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $transformed_query is dynamically constructed SQL that cannot use placeholders
                                 $result = $wpdb->query($transformed_query);
                                 if ($result === false && !empty($wpdb->last_error)) {
                                     $this->log_php('[WP Vault] ERROR: Retry failed: ' . $wpdb->last_error);
@@ -843,6 +850,7 @@ class WP_Vault_Restore_Engine
                 $buffer = $this->remove_processed_queries($buffer, $queries);
             }
 
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- SQL file reading requires direct file access
             fclose($handle);
 
             $this->log_php('[WP Vault] Import complete. Processed ' . $queries_processed . ' queries, created ' . count($temp_tables) . ' temp tables');
@@ -872,6 +880,7 @@ class WP_Vault_Restore_Engine
             return $temp_prefix;
 
         } catch (\Exception $e) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- SQL file reading requires direct file access
             fclose($handle);
             throw $e;
         }
@@ -906,7 +915,7 @@ class WP_Vault_Restore_Engine
 
         if (empty($temp_tables)) {
             $this->log_php('[WP Vault] ERROR: No temporary tables found with prefix: ' . $temp_prefix);
-            throw new \Exception('No temporary tables found to replace');
+            throw new \Exception(esc_html('No temporary tables found to replace'));
         }
 
         $table_prefix = $wpdb->prefix;
@@ -968,7 +977,8 @@ class WP_Vault_Restore_Engine
             if ($this->is_excluded_table($table_name_clean)) {
                 $this->log->write_log('SKIPPING excluded table during atomic replacement: ' . $table_name_clean . ' (temp: ' . $temp_table . ', original: ' . $original_table . ')', 'notice');
                 // Drop the temp table since we're not using it
-                $drop_result = $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_clean}`");
+                $temp_table_clean_escaped = esc_sql($temp_table_clean);
+                $drop_result = $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_clean_escaped}`");
                 $this->log->write_log('Dropped excluded temp table: ' . $temp_table_clean . ' (result: ' . ($drop_result !== false ? 'success' : 'failed') . ')', 'info');
                 $skipped_count++;
                 continue;
@@ -979,11 +989,12 @@ class WP_Vault_Restore_Engine
             $this->log_php('[WP Vault] Replacing: ' . $temp_table . ' -> ' . $original_table);
 
             // Drop old table if exists
-            $wpdb->query("DROP TABLE IF EXISTS `{$original_table_clean}`");
+            $original_table_clean_escaped = esc_sql($original_table_clean);
+            $wpdb->query("DROP TABLE IF EXISTS `{$original_table_clean_escaped}`");
 
             // Rename temp table to original (atomic operation)
-            // Note: RENAME TABLE doesn't support prepared statements
-            $result = $wpdb->query("RENAME TABLE `{$temp_table_clean}` TO `{$original_table_clean}`");
+            // Note: RENAME TABLE doesn't support prepared statements, but we use esc_sql for safety
+            $result = $wpdb->query("RENAME TABLE `{$temp_table_clean_escaped}` TO `{$original_table_clean_escaped}`");
 
             if ($result === false) {
                 $this->log_php('[WP Vault] ERROR: Failed to rename table ' . $temp_table . ' to ' . $original_table . ': ' . $wpdb->last_error);
@@ -1015,7 +1026,8 @@ class WP_Vault_Restore_Engine
         $temp_tables = $wpdb->get_col("SHOW TABLES LIKE '{$temp_prefix}%'");
 
         foreach ($temp_tables as $table) {
-            $wpdb->query("DROP TABLE IF EXISTS `{$table}`");
+            $table_escaped = esc_sql($table);
+            $wpdb->query("DROP TABLE IF EXISTS `{$table_escaped}`");
         }
 
         $this->log('Rolled back: removed ' . count($temp_tables) . ' temporary tables');
@@ -1238,9 +1250,10 @@ class WP_Vault_Restore_Engine
 
         global $wpdb;
         $table = $wpdb->prefix . 'wp_vault_jobs';
+        $table_escaped = esc_sql($table);
 
         $job = $wpdb->get_row($wpdb->prepare(
-            "SELECT resume_data FROM $table WHERE backup_id = %s",
+            "SELECT resume_data FROM {$table_escaped} WHERE backup_id = %s",
             $this->restore_id
         ));
 
@@ -1260,7 +1273,7 @@ class WP_Vault_Restore_Engine
         global $wpdb;
         $wpdb->get_var('SELECT 1');
         if (!empty($wpdb->last_error)) {
-            throw new \Exception('Database connection validation failed: ' . $wpdb->last_error);
+            throw new \Exception(esc_html('Database connection validation failed: ' . $wpdb->last_error));
         }
 
         // 2. Check disk space (need at least 500MB free)
@@ -1359,13 +1372,16 @@ class WP_Vault_Restore_Engine
     private function decompress_file($source, $destination)
     {
         $fp_in = gzopen($source, 'rb');
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary decompression requires direct file access
         $fp_out = fopen($destination, 'wb');
 
         while (!gzeof($fp_in)) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Binary decompression requires direct file access
             fwrite($fp_out, gzread($fp_in, 8192));
         }
 
         gzclose($fp_in);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary decompression requires direct file access
         fclose($fp_out);
     }
 
@@ -1375,13 +1391,16 @@ class WP_Vault_Restore_Engine
     private function decompress_gz($source, $destination)
     {
         $fp_in = gzopen($source, 'rb');
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary decompression requires direct file access
         $fp_out = fopen($destination, 'wb');
 
         while (!gzeof($fp_in)) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Binary decompression requires direct file access
             fwrite($fp_out, gzread($fp_in, 8192));
         }
 
         gzclose($fp_in);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary decompression requires direct file access
         fclose($fp_out);
     }
 
@@ -1400,7 +1419,7 @@ class WP_Vault_Restore_Engine
                     'region' => get_option('wpv_s3_region'),
                 );
             default:
-                throw new \Exception('Unsupported storage type: ' . $type);
+                throw new \Exception(esc_html('Unsupported storage type: ' . $type));
         }
     }
 
@@ -1420,7 +1439,7 @@ class WP_Vault_Restore_Engine
     {
         // Only delete temp archive if it's in temp_dir (downloaded copy), not the original backup
         if ($archive_path && file_exists($archive_path) && strpos($archive_path, $this->temp_dir) === 0) {
-            unlink($archive_path);
+            wp_delete_file($archive_path);
         }
 
         if (is_dir($extract_dir)) {
@@ -1441,10 +1460,21 @@ class WP_Vault_Restore_Engine
 
         foreach ($files as $file) {
             $path = $dir . '/' . $file;
-            is_dir($path) ? $this->delete_directory($path) : unlink($path);
+            is_dir($path) ? $this->delete_directory($path) : wp_delete_file($path);
         }
 
-        rmdir($dir);
+        // Use WP_Filesystem for directory removal
+        global $wp_filesystem;
+        if (empty($wp_filesystem)) {
+            require_once ABSPATH . '/wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+        if ($wp_filesystem) {
+            $wp_filesystem->rmdir($dir, true);
+        } else {
+            // Fallback if WP_Filesystem is not available
+            @rmdir($dir); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
+        }
     }
 
     /**
@@ -1458,16 +1488,17 @@ class WP_Vault_Restore_Engine
         if ($this->restore_id) {
             global $wpdb;
             $table = $wpdb->prefix . 'wp_vault_jobs';
+            $table_escaped = esc_sql($table);
             $logs_table = $wpdb->prefix . 'wp_vault_job_logs';
 
             // Debug: Check if job exists before update
-            $existing_job = $wpdb->get_row($wpdb->prepare("SELECT backup_id, status FROM $table WHERE backup_id = %s", $this->restore_id));
+            $existing_job = $wpdb->get_row($wpdb->prepare("SELECT backup_id, status FROM {$table_escaped} WHERE backup_id = %s", $this->restore_id));
             if ($existing_job) {
                 $this->log_php('[WP Vault] log_progress: Found job with backup_id: ' . $existing_job->backup_id . ', current status: ' . $existing_job->status);
             } else {
                 $this->log_php('[WP Vault] log_progress: WARNING - Job not found with backup_id: ' . $this->restore_id);
                 // Try to find any restore jobs
-                $all_restores = $wpdb->get_results($wpdb->prepare("SELECT backup_id, status FROM $table WHERE job_type = %s ORDER BY started_at DESC LIMIT 5", 'restore'));
+                $all_restores = $wpdb->get_results($wpdb->prepare("SELECT backup_id, status FROM {$table_escaped} WHERE job_type = %s ORDER BY started_at DESC LIMIT 5", 'restore'));
                 $this->log_php('[WP Vault] log_progress: Found ' . count($all_restores) . ' restore jobs in database');
                 foreach ($all_restores as $job) {
                     $this->log_php('[WP Vault] log_progress:   - ' . $job->backup_id . ' (status: ' . $job->status . ')');
@@ -1508,6 +1539,7 @@ class WP_Vault_Restore_Engine
     private function log($message)
     {
         if (defined('WP_DEBUG') && WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
             error_log('[WP Vault Restore] ' . $message);
         }
     }
@@ -1518,8 +1550,11 @@ class WP_Vault_Restore_Engine
      */
     private function log_php($message)
     {
-        $timestamp = date('Y-m-d H:i:s');
-        error_log('[' . $timestamp . '] [WP Vault] ' . $message);
+        $timestamp = gmdate('Y-m-d H:i:s');
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            error_log('[' . $timestamp . '] [WP Vault] ' . $message);
+        }
 
         // Also write to file log if available
         if ($this->log) {
@@ -1551,7 +1586,7 @@ class WP_Vault_Restore_Engine
             $plan_result = $api->get_restore_plan($snapshot_id, $this->restore_mode);
 
             if (!$plan_result['success']) {
-                throw new \Exception('Failed to get restore plan: ' . ($plan_result['error'] ?? 'Unknown error'));
+                throw new \Exception(esc_html('Failed to get restore plan: ' . ($plan_result['error'] ?? 'Unknown error')));
             }
 
             $restore_steps = $plan_result['data']['restore_steps'];
@@ -1575,7 +1610,7 @@ class WP_Vault_Restore_Engine
                     $download_result = $this->download_file($download_url, $temp_file);
 
                     if (!$download_result) {
-                        throw new \Exception("Failed to download component: $component");
+                        throw new \Exception(esc_html("Failed to download component: $component"));
                     }
 
                     // Extract and restore
@@ -1586,7 +1621,7 @@ class WP_Vault_Restore_Engine
                     }
 
                     // Clean up
-                    @unlink($temp_file);
+                    wp_delete_file($temp_file);
                 }
             }
 

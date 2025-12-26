@@ -123,7 +123,7 @@ class WP_Vault_Backup_Engine
             // Step 1: Scan files (if files backup)
             // Skip if incremental (should use incremental flow instead)
             if ($this->backup_type === 'incremental') {
-                throw new \Exception('Incremental backups should use the incremental backup flow, not the standard backup engine');
+                throw new \Exception(esc_html('Incremental backups should use the incremental backup flow, not the standard backup engine'));
             }
 
             $files = array();
@@ -221,7 +221,10 @@ class WP_Vault_Backup_Engine
                 $update_result = $this->api->update_job_status($this->backup_id, 'completed', $archive_size);
                 if (!$update_result['success']) {
                     if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('[WP Vault] Failed to update SaaS job status: ' . ($update_result['error'] ?? 'Unknown error'));
+                        if (defined('WP_DEBUG') && WP_DEBUG) {
+                            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+                            error_log('[WP Vault] Failed to update SaaS job status: ' . ($update_result['error'] ?? 'Unknown error'));
+                        }
                     }
                 } else {
                     $this->log('[WP Vault] Successfully updated SaaS job status to completed with size: ' . size_format($archive_size));
@@ -564,7 +567,7 @@ class WP_Vault_Backup_Engine
             if ($return_code !== 0) {
                 $error_msg = implode("\n", $output);
                 $this->log_php('[WP Vault] mysqldump error output: ' . $error_msg);
-                throw new \Exception('Database backup failed: ' . $error_msg);
+                throw new \Exception(esc_html('Database backup failed: ' . $error_msg));
             }
 
             $dump_size = file_exists($db_file) ? filesize($db_file) : 0;
@@ -590,7 +593,7 @@ class WP_Vault_Backup_Engine
         $this->log_php('[WP Vault] Compressed size: ' . size_format($compressed_size));
         $this->log_php('[WP Vault] Compression ratio: ' . ($dump_size > 0 ? round(($compressed_size / $dump_size) * 100, 1) : 0) . '%');
 
-        unlink($db_file);
+        wp_delete_file($db_file);
         $this->log_php('[WP Vault] Removed uncompressed database file');
 
         $this->log('Database backed up: ' . size_format($compressed_size));
@@ -877,27 +880,33 @@ class WP_Vault_Backup_Engine
     private function split_archive_manual($archive_path, $split_size)
     {
         $parts = array();
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary file splitting requires direct file access for streaming
         $handle = fopen($archive_path, 'rb');
         $part_number = 1;
 
         while (!feof($handle)) {
             $part_path = $archive_path . '.part' . sprintf('%03d', $part_number);
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary file splitting requires direct file access for streaming
             $part_handle = fopen($part_path, 'wb');
             $bytes_written = 0;
 
             while ($bytes_written < $split_size && !feof($handle)) {
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Binary file splitting requires chunked reading
                 $chunk = fread($handle, min(8192, $split_size - $bytes_written));
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Binary file splitting requires chunked writing
                 fwrite($part_handle, $chunk);
                 $bytes_written += strlen($chunk);
             }
 
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file splitting requires direct file access
             fclose($part_handle);
             $parts[] = $part_path;
             $part_number++;
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file splitting requires direct file access
         fclose($handle);
-        unlink($archive_path); // Remove original
+        wp_delete_file($archive_path); // Remove original
 
         return $parts;
     }
@@ -929,7 +938,7 @@ class WP_Vault_Backup_Engine
                 $extension = pathinfo($basename, PATHINFO_EXTENSION);
             }
 
-            $filename = $component_name . '-' . $this->backup_id . '-' . date('Y-m-d-His') . '.' . $extension;
+            $filename = $component_name . '-' . $this->backup_id . '-' . gmdate('Y-m-d-His') . '.' . $extension;
         } else {
             // Legacy single file backup or use original filename
             if (substr($basename, -7) === '.tar.gz') {
@@ -939,7 +948,7 @@ class WP_Vault_Backup_Engine
             } else {
                 $extension = pathinfo($basename, PATHINFO_EXTENSION);
             }
-            $filename = 'backup-' . $this->backup_id . '-' . date('Y-m-d-His') . '.' . $extension;
+            $filename = 'backup-' . $this->backup_id . '-' . gmdate('Y-m-d-His') . '.' . $extension;
         }
 
         $local_path = $this->backup_dir . $filename;
@@ -949,7 +958,7 @@ class WP_Vault_Backup_Engine
         $copy_start = microtime(true);
         if (!copy($archive_path, $local_path)) {
             $this->log_php('[WP Vault] ERROR: Failed to copy archive to local backup directory');
-            throw new \Exception('Failed to save backup locally');
+            throw new \Exception(esc_html('Failed to save backup locally'));
         }
         $copy_time = round(microtime(true) - $copy_start, 2);
         $local_size = filesize($local_path);
@@ -1011,7 +1020,7 @@ class WP_Vault_Backup_Engine
             if (!$result['success']) {
                 $this->log_php('[WP Vault] ERROR: Storage upload failed for ' . basename($archive_path));
                 $this->log_php('[WP Vault] Error: ' . ($result['error'] ?? 'Unknown error'));
-                throw new \Exception('Storage upload failed: ' . ($result['error'] ?? 'Unknown error'));
+                throw new \Exception(esc_html('Storage upload failed: ' . ($result['error'] ?? 'Unknown error')));
             }
 
             $uploaded_paths[] = $remote_path;
@@ -1045,7 +1054,7 @@ class WP_Vault_Backup_Engine
                     'region' => get_option('wpv_s3_region'),
                 );
             default:
-                throw new \Exception('Unsupported storage type: ' . $type);
+                throw new \Exception(esc_html('Unsupported storage type: ' . $type));
         }
     }
 
@@ -1054,13 +1063,16 @@ class WP_Vault_Backup_Engine
      */
     private function compress_file($source, $destination)
     {
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Gzip compression requires direct file access for streaming
         $fp_in = fopen($source, 'rb');
         $fp_out = gzopen($destination, 'wb9');
 
         while (!feof($fp_in)) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Gzip compression requires chunked reading
             gzwrite($fp_out, fread($fp_in, 8192));
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Gzip compression requires direct file access
         fclose($fp_in);
         gzclose($fp_out);
     }
@@ -1078,11 +1090,12 @@ class WP_Vault_Backup_Engine
         // Create a file list to avoid command line length limits
         $file_list_path = $this->temp_dir . 'file-list-' . $this->backup_id . '.txt';
         $this->log_php('[WP Vault] Creating file list: ' . $file_list_path);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- File list creation requires direct file access for performance
         $file_list = fopen($file_list_path, 'w');
 
         if (!$file_list) {
             $this->log_php('[WP Vault] ERROR: Failed to create file list file');
-            throw new \Exception('Failed to create file list for tar');
+            throw new \Exception(esc_html('Failed to create file list for tar'));
         }
 
         // Write all file paths (relative to wp_root)
@@ -1095,6 +1108,7 @@ class WP_Vault_Backup_Engine
                     // Get relative path from WordPress root
                     $rel_path = str_replace($wp_root . '/', '', $abs_path);
                     if ($rel_path !== $abs_path && !empty($rel_path)) {
+                        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- File list creation requires direct file access for performance
                         fwrite($file_list, $rel_path . "\n");
                         $files_written++;
                     }
@@ -1102,6 +1116,7 @@ class WP_Vault_Backup_Engine
             }
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- File list creation requires direct file access
         fclose($file_list);
         $this->log_php('[WP Vault] File list created with ' . $files_written . ' files');
         $list_size = filesize($file_list_path);
@@ -1184,11 +1199,11 @@ class WP_Vault_Backup_Engine
             $error_msg = !empty($output) ? implode("\n", $output) : 'Unknown tar error';
             $this->log_php('[WP Vault] ERROR: Tar command failed');
             $this->log_php('[WP Vault] Error details: ' . $error_msg);
-            throw new \Exception('Tar command failed (exit code ' . $return_var . '): ' . $error_msg);
+            throw new \Exception(esc_html('Tar command failed (exit code ' . $return_var . '): ' . $error_msg));
         }
 
         // Clean up file list
-        @unlink($file_list_path);
+        wp_delete_file($file_list_path);
         $this->log_php('[WP Vault] Cleaned up file list');
 
         // Verify archive was created and check its size
@@ -1225,7 +1240,7 @@ class WP_Vault_Backup_Engine
         // Ensure clean state
         if (file_exists($tar_path)) {
             $this->log_php('[WP Vault] Removing existing tar file...');
-            unlink($tar_path);
+            wp_delete_file($tar_path);
         }
 
         // Increase memory limit temporarily for compression
@@ -1306,13 +1321,13 @@ class WP_Vault_Backup_Engine
                 if ($gzip_return === 0 && file_exists($archive_path)) {
                     $this->log_php('[WP Vault] Compression successful via gzip');
                     // Remove uncompressed tar
-                    @unlink($tar_path);
+                    wp_delete_file($tar_path);
                 } else {
                     $this->log_php('[WP Vault] Gzip failed, falling back to PharData::compress()...');
                     // Fallback to PharData compress if gzip fails
                     $phar->compress(\Phar::GZ);
                     if (file_exists($tar_path)) {
-                        @unlink($tar_path);
+                        wp_delete_file($tar_path);
                     }
                 }
             } else {
@@ -1326,7 +1341,7 @@ class WP_Vault_Backup_Engine
                 $this->log_php('[WP Vault] PharData compression completed in ' . $compress_time . 's');
                 $this->log_php('[WP Vault] Memory after PharData compression: ' . size_format(memory_get_usage(true)));
                 if (file_exists($tar_path)) {
-                    @unlink($tar_path);
+                    wp_delete_file($tar_path);
                 }
             }
         } catch (\Exception $e) {
@@ -1355,10 +1370,21 @@ class WP_Vault_Backup_Engine
             if (is_dir($path)) {
                 $this->delete_directory($path);
             } else {
-                @unlink($path);
+                wp_delete_file($path);
             }
         }
-        @rmdir($dir);
+        // Use WP_Filesystem for directory removal
+        global $wp_filesystem;
+        if (empty($wp_filesystem)) {
+            require_once ABSPATH . '/wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+        if ($wp_filesystem) {
+            $wp_filesystem->rmdir($dir, true);
+        } else {
+            // Fallback if WP_Filesystem is not available
+            @rmdir($dir); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
+        }
     }
 
     /**
@@ -1384,17 +1410,17 @@ class WP_Vault_Backup_Engine
             foreach ($archives as $archive_path) {
                 if (file_exists($archive_path)) {
                     $this->log_php('[WP Vault] Removing temp archive: ' . basename($archive_path));
-                    @unlink($archive_path);
+                    wp_delete_file($archive_path);
                 }
             }
         } elseif (file_exists($archives)) {
             $this->log_php('[WP Vault] Removing temp archive: ' . basename($archives));
-            @unlink($archives);
+            wp_delete_file($archives);
         }
 
         if ($db_file && file_exists($db_file)) {
             $this->log_php('[WP Vault] Removing temp database file: ' . basename($db_file));
-            @unlink($db_file);
+            wp_delete_file($db_file);
         }
         $this->log_php('[WP Vault] Cleanup complete');
     }
@@ -1463,18 +1489,22 @@ class WP_Vault_Backup_Engine
     private function log($message)
     {
         if (defined('WP_DEBUG') && WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
             error_log('[WP Vault Backup] ' . $message);
         }
     }
 
     /**
      * Log to PHP error log (visible in Docker logs) and file log
-     * This is always enabled for debugging
+     * This is only enabled when WP_DEBUG is true
      */
     private function log_php($message)
     {
-        $timestamp = date('Y-m-d H:i:s');
-        error_log('[' . $timestamp . '] ' . $message);
+        $timestamp = gmdate('Y-m-d H:i:s');
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+            error_log('[' . $timestamp . '] ' . $message);
+        }
 
         // Also write to file log if available
         if ($this->log) {

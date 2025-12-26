@@ -35,12 +35,15 @@ class WP_Vault_Fingerprinter
         }
 
         // Read first 64KB
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary file reading for hashing requires direct file access
         $fh = @fopen($file_path, 'rb');
         if ($fh === false) {
             return false;
         }
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Binary file reading for hashing
         $data = @fread($fh, WPV_FINGERPRINT_BYTES);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file reading for hashing
         fclose($fh);
 
         if ($data === false) {
