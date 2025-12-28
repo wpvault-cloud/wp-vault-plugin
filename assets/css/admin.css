@@ -433,13 +433,15 @@
 }
 
 .wpv-status-success,
-.wpv-status-completed {
+.wpv-status-completed,
+.wpv-status-restored {
     background: #d4edda;
     color: #155724;
 }
 
 .wpv-status-pending,
-.wpv-status-running {
+.wpv-status-running,
+.wpv-status-interrupted {
     background: #fff3cd;
     color: #856404;
 }

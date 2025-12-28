@@ -71,6 +71,7 @@ class WP_Vault_Activator
             job_type varchar(50) NOT NULL,
             status varchar(50) DEFAULT 'pending',
             backup_id varchar(255),
+            source_backup_id varchar(255) DEFAULT NULL,
             progress_percent int(3) DEFAULT 0,
             total_size_bytes bigint(20) DEFAULT 0,
             started_at datetime,
@@ -139,27 +140,60 @@ class WP_Vault_Activator
             $cursor_check = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'cursor'));
             if (!empty($cursor_check)) {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
-                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL AFTER cursor");
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL AFTER `cursor` ");
             } else {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
                 $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL");
             }
         }
 
-        // Create wp_wp_vault_job_logs table (local cache of per-step logs)
-        $table_job_logs = $wpdb->prefix . 'wp_vault_job_logs';
-        $table_job_logs_escaped = esc_sql($table_job_logs);
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
-        $sql_job_logs = "CREATE TABLE IF NOT EXISTS {$table_job_logs_escaped} (
+        // Create wp_vault_backup_history table for tracking all backups
+        $table_backup_history = $wpdb->prefix . 'wp_vault_backup_history';
+        $table_backup_history_escaped = esc_sql($table_backup_history);
+        $sql_backup_history = "CREATE TABLE IF NOT EXISTS {$table_backup_history_escaped} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             backup_id varchar(255) NOT NULL,
-            level varchar(20) DEFAULT 'INFO',
-            step varchar(255),
-            message text NOT NULL,
-            percent int(3),
+            job_type varchar(50) DEFAULT 'backup',
+            backup_type varchar(50) DEFAULT 'full',
+            status varchar(50) DEFAULT 'pending',
+            total_size_bytes bigint(20) DEFAULT 0,
+            progress_percent int(3) DEFAULT 0,
+            source varchar(50) DEFAULT 'local',
+            has_local_files tinyint(1) DEFAULT 0,
+            has_remote_files tinyint(1) DEFAULT 0,
+            trigger_source varchar(50) DEFAULT 'manual',
+            schedule_id varchar(255) DEFAULT NULL,
+            started_at datetime DEFAULT NULL,
+            finished_at datetime DEFAULT NULL,
+            error_message text DEFAULT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
+            UNIQUE KEY backup_id (backup_id),
+            KEY status (status),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+
+        // Create wp_vault_restore_history table for tracking all restores
+        $table_restore_history = $wpdb->prefix . 'wp_vault_restore_history';
+        $table_restore_history_escaped = esc_sql($table_restore_history);
+        $sql_restore_history = "CREATE TABLE IF NOT EXISTS {$table_restore_history_escaped} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            restore_id varchar(255) NOT NULL,
+            backup_id varchar(255) DEFAULT NULL,
+            status varchar(50) DEFAULT 'pending',
+            progress_percent int(3) DEFAULT 0,
+            restore_mode varchar(50) DEFAULT 'full',
+            components text DEFAULT NULL,
+            started_at datetime DEFAULT NULL,
+            finished_at datetime DEFAULT NULL,
+            error_message text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY restore_id (restore_id),
             KEY backup_id (backup_id),
+            KEY status (status),
             KEY created_at (created_at)
         ) $charset_collate;";
 
@@ -168,6 +202,8 @@ class WP_Vault_Activator
         dbDelta($sql_files);
         dbDelta($sql_jobs);
         dbDelta($sql_job_logs);
+        dbDelta($sql_backup_history);
+        dbDelta($sql_restore_history);
 
         // Set default options
         add_option('wpv_api_endpoint', 'http://localhost:3000');

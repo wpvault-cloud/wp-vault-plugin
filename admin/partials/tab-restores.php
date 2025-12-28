@@ -52,6 +52,7 @@ function wpvault_display_restores_tab()
                 <thead>
                     <tr>
                         <th><?php esc_html_e('Restore ID', 'wp-vault'); ?></th>
+                        <th><?php esc_html_e('Restored From', 'wp-vault'); ?></th>
                         <th><?php esc_html_e('Status', 'wp-vault'); ?></th>
                         <th><?php esc_html_e('Progress', 'wp-vault'); ?></th>
                         <th><?php esc_html_e('Date', 'wp-vault'); ?></th>
@@ -65,13 +66,20 @@ function wpvault_display_restores_tab()
                                 <code><?php echo esc_html(substr($restore->backup_id, 0, 20)); ?></code>
                             </td>
                             <td>
+                                <?php if (!empty($restore->source_backup_id)): ?>
+                                    <code><?php echo esc_html(substr($restore->source_backup_id, 0, 20)); ?></code>
+                                <?php else: ?>
+                                    <span class="description"><?php esc_html_e('Unknown', 'wp-vault'); ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
                                 <span class="wpv-status wpv-status-<?php echo esc_attr($restore->status); ?>">
                                     <?php echo esc_html(ucfirst($restore->status)); ?>
                                 </span>
                             </td>
                             <td>
                                 <?php
-                                if ($restore->status === 'running' || $restore->status === 'completed') {
+                                if ($restore->status === 'running' || $restore->status === 'completed' || $restore->status === 'restored') {
                                     echo esc_html($restore->progress_percent) . '%';
                                     if ($restore->status === 'running') {
                                         echo ' <span class="spinner is-active" style="float: none; margin: 0 0 0 5px;"></span>';
@@ -108,6 +116,17 @@ function wpvault_display_restores_tab()
                 </tbody>
             </table>
         <?php endif; ?>
+        <style>
+            .wpv-status-restored {
+                background: #46b450;
+                color: #fff;
+            }
+
+            .wpv-status-interrupted {
+                background: #d63638;
+                color: #fff;
+            }
+        </style>
     </div>
 
     <script>
@@ -243,7 +262,7 @@ function wpvault_display_restores_tab()
                                     .addClass('wpv-status-' + status).text(status.charAt(0).toUpperCase() + status.slice(1));
                                 $row.find('td:nth-child(3)').html(progress + '%' + (status === 'running' ? ' <span class="spinner is-active" style="float: none; margin: 0 0 0 5px;"></span>' : ''));
 
-                                if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                                if (status === 'completed' || status === 'restored' || status === 'failed' || status === 'cancelled' || status === 'interrupted') {
                                     location.reload();
                                 }
                             }

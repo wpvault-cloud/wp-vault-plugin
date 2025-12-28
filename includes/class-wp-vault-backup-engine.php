@@ -1019,6 +1019,10 @@ class WP_Vault_Backup_Engine
         $this->log_php('[WP Vault] Storage adapter created');
 
         $site_id = get_option('wpv_site_id', '');
+        if (empty($site_id)) {
+            $this->log_php('[WP Vault] Skipping cloud upload because site is not registered (Local Mode)');
+            return array('success' => true, 'message' => 'Skipped cloud upload (Local Mode)');
+        }
         $uploaded_paths = array();
         $upload_count = 0;
 

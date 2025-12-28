@@ -103,6 +103,7 @@ class WP_Vault
 
         // Check for pending jobs on admin page loads (immediate polling)
         if (is_admin()) {
+            add_action('init', array($this, 'mark_stale_jobs_as_interrupted'));
             add_action('admin_init', array($this, 'check_pending_jobs_on_load'));
             // Also check for local pending jobs that might be stuck
             add_action('admin_init', array($this, 'execute_pending_local_jobs'));
@@ -167,6 +168,61 @@ class WP_Vault
         wp_schedule_single_event(time(), 'wpv_poll_pending_jobs');
         spawn_cron();
     }
+    /**
+     * Mark jobs that have been 'running' for too long as 'interrupted'
+     * This fixes UI issues where a process died but still shows as 'Running'
+     */
+    public function mark_stale_jobs_as_interrupted()
+    {
+        // Only run for administrators in the backend
+        if (!is_admin() || !current_user_can('manage_options')) {
+            return;
+        }
+
+        // Only run once per hour to avoid overhead
+        $last_cleanup = get_transient('wpv_stale_jobs_cleanup');
+        if ($last_cleanup) {
+            return;
+        }
+        set_transient('wpv_stale_jobs_cleanup', time(), HOUR_IN_SECONDS);
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'wp_vault_jobs';
+        $table_backup_history = $wpdb->prefix . 'wp_vault_backup_history';
+        $table_restore_history = $wpdb->prefix . 'wp_vault_restore_history';
+
+        // Find jobs that have been 'running' for more than 2 hours
+        // and haven't been updated recently
+        $two_hours_ago = gmdate('Y-m-d H:i:s', time() - (2 * HOUR_IN_SECONDS));
+
+        // Update jobs table
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$table} 
+             SET status = 'interrupted', error_message = 'Job timed out or was interrupted' 
+             WHERE status = 'running' AND (updated_at < %s OR (updated_at IS NULL AND started_at < %s))",
+            $two_hours_ago,
+            $two_hours_ago
+        ));
+
+        // Update backup history
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$table_backup_history} 
+             SET status = 'interrupted', error_message = 'Job timed out or was interrupted' 
+             WHERE status = 'running' AND (updated_at < %s OR (updated_at IS NULL AND started_at < %s))",
+            $two_hours_ago,
+            $two_hours_ago
+        ));
+
+        // Update restore history
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$table_restore_history} 
+             SET status = 'interrupted', error_message = 'Job timed out or was interrupted' 
+             WHERE status = 'running' AND (updated_at < %s OR (updated_at IS NULL AND started_at < %s))",
+            $two_hours_ago,
+            $two_hours_ago
+        ));
+    }
+
 
     /**
      * Ensure database tables exist (runs on every page load)
@@ -256,7 +312,7 @@ class WP_Vault
             $cursor_check = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'cursor'));
             if (!empty($cursor_check)) {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
-                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL AFTER cursor");
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL AFTER `cursor` ");
             } else {
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
                 $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL");
@@ -275,13 +331,21 @@ class WP_Vault
             $wpdb->query("DROP TABLE IF EXISTS {$table_job_logs_escaped}");
         }
 
-        // Add metadata columns for tracking backup source
         // Add schedule_id column if missing
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
         $schedule_id_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'schedule_id'));
         if (empty($schedule_id_exists)) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
             $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN schedule_id varchar(255) DEFAULT NULL AFTER backup_id");
+        }
+
+
+        // Add source_backup_id column if missing
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+        $source_backup_id_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'source_backup_id'));
+        if (empty($source_backup_id_exists)) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+            $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN source_backup_id varchar(255) DEFAULT NULL AFTER backup_id");
         }
 
         // Add trigger_source column if missing (manual, schedule, api)
@@ -688,8 +752,21 @@ class WP_Vault
         require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
         $api = new WP_Vault_API();
 
-        // Create backup job in SaaS
-        $result = $api->create_backup($backup_type, 'manual');
+        $site_id = get_option('wpv_site_id');
+        $site_token = get_option('wpv_site_token');
+        $is_connected = !empty($site_id) && !empty($site_token);
+
+        if ($is_connected) {
+            // Create backup job in SaaS
+            $result = $api->create_backup($backup_type, 'manual');
+        } else {
+            // Local-only backup
+            $backup_id = 'local-' . uniqid();
+            $result = array(
+                'success' => true,
+                'data' => array('backup_id' => $backup_id)
+            );
+        }
 
         if ($result['success']) {
             $backup_id = $result['data']['backup_id'];
@@ -713,23 +790,26 @@ class WP_Vault
 
             // Insert into backup_history for permanent tracking
             $history_table = $wpdb->prefix . 'wp_vault_backup_history';
-            $wpdb->replace(
-                $history_table,
-                array(
-                    'backup_id' => $backup_id,
-                    'job_type' => 'backup',
-                    'backup_type' => $backup_type,
-                    'status' => 'pending',
-                    'progress_percent' => 0,
-                    'source' => 'local',
-                    'has_local_files' => 0,
-                    'has_remote_files' => 1, // Will be uploaded to SaaS
-                    'trigger_source' => 'manual',
-                    'schedule_id' => null,
-                    'started_at' => current_time('mysql'),
-                ),
-                array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s')
-            );
+            // Check if history table exists
+            $history_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $history_table));
+            if ($history_exists) {
+                $wpdb->replace(
+                    $history_table,
+                    array(
+                        'backup_id' => $backup_id,
+                        'job_type' => 'backup',
+                        'backup_type' => $backup_type,
+                        'status' => 'pending',
+                        'progress_percent' => 0,
+                        'source' => 'local',
+                        'has_local_files' => 1,
+                        'has_remote_files' => $is_connected ? 1 : 0,
+                        'trigger_source' => 'manual',
+                        'started_at' => current_time('mysql'),
+                    ),
+                    array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s')
+                );
+            }
 
             // Execute backup immediately in background (spawn process)
             // This avoids waiting for WP-Cron which only runs on page load
@@ -742,7 +822,7 @@ class WP_Vault
             do_action('wpvault_execute_backup', $backup_id, $backup_type);
 
             wp_send_json_success(array(
-                'message' => 'Backup started',
+                'message' => 'Backup started' . (!$is_connected ? ' (Local Mode)' : ''),
                 'backup_id' => $backup_id,
             ));
         } else {
@@ -1456,19 +1536,24 @@ class WP_Vault
         $restore_id = 'restore-' . uniqid();
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[WP Vault] ajax_restore_backup - Starting restore for backup: ' . $backup_id . ', restore_id: ' . $restore_id . ', mode: ' . $restore_mode);
+        }
+
         $restore_options['backup_id'] = $backup_id; // Store original backup_id for manifest lookup
 
         $insert_result = $wpdb->insert(
             $table,
             array(
                 'backup_id' => $restore_id,
+                'source_backup_id' => $backup_id,
                 'job_type' => 'restore',
                 'status' => 'running',
                 'progress_percent' => 0,
                 'resume_data' => json_encode($restore_options),
                 'started_at' => current_time('mysql'),
             ),
-            array('%s', '%s', '%s', '%d', '%s', '%s')
+            array('%s', '%s', '%s', '%s', '%d', '%s', '%s')
         );
 
         // Verify the job was created
@@ -1511,6 +1596,10 @@ class WP_Vault
         // Spawn cron immediately
         spawn_cron();
         do_action('wpvault_execute_restore', $restore_id, $backup_path, $restore_options);
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[WP Vault] ajax_restore_backup - Restore job scheduled: ' . $restore_id);
+        }
 
         wp_send_json_success(array(
             'restore_id' => $restore_id,
@@ -1607,6 +1696,10 @@ class WP_Vault
                     'created_at' => $log->created_at,
                 );
             }, $db_logs) : array();
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[WP Vault] ajax_get_restore_status - Returning success for ' . $restore_id . ' (Status: ' . $job->status . ', Progress: ' . $job->progress_percent . '%)');
         }
 
         wp_send_json_success(array(

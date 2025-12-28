@@ -35,6 +35,15 @@ function wpvault_display_backups_page()
         ARRAY_A
     );
 
+    // Get list of backups that have been successfully restored from
+    $jobs_table = $wpdb->prefix . 'wp_vault_jobs';
+    $restored_backup_ids = $wpdb->get_col(
+        "SELECT DISTINCT source_backup_id 
+         FROM {$jobs_table} 
+         WHERE job_type = 'restore' AND status IN ('restored', 'completed') AND source_backup_id IS NOT NULL"
+    );
+    $restored_from_map = array_flip($restored_backup_ids);
+
     // Get local backup files (grouped by backup_id) - for legacy/full backups
     $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
     $local_backups = array();
@@ -390,7 +399,8 @@ function wpvault_display_backups_page()
             'has_remote_files' => $has_remote,
             'files' => $files,
             'components' => $components,
-            'snapshot_id' => isset($backup['snapshot_id']) ? $backup['snapshot_id'] : null
+            'snapshot_id' => isset($backup['snapshot_id']) ? $backup['snapshot_id'] : null,
+            'restored_from' => isset($restored_from_map[$backup_id]), // Check if this backup has been restored
         );
     }
 
@@ -428,6 +438,7 @@ function wpvault_display_backups_page()
                 'has_remote_files' => intval($history_item['has_remote_files']) === 1,
                 'files' => $local_backup_data ? $local_backup_data['files'] : array(),
                 'components' => $local_backup_data ? $local_backup_data['components'] : array(),
+                'restored_from' => isset($restored_from_map[$backup_id]), // Check if this backup has been restored
                 'snapshot_id' => null
             );
         }
@@ -565,12 +576,12 @@ function wpvault_display_backups_page()
                             </td>
                             <td>
                                 <strong><?php echo esc_html(size_format($total_size)); ?></strong>
-                                <?php if (isset($backup['status'])): ?>
-                                    <br><span class="wpv-status wpv-status-<?php echo esc_attr($backup['status']); ?>"
-                                        style="font-size:11px; margin-top:3px; display:inline-block;">
-                                        <?php echo esc_html(ucfirst($backup['status'])); ?>
-                                    </span>
-                                <?php endif; ?>
+                                    <?php if (isset($backup['status'])): ?>
+                                        <br><span class="wpv-status wpv-status-<?php echo esc_attr($backup['status']); ?>"
+                                            style="font-size:11px; margin-top:3px; display:inline-block;">
+                                            <?php echo esc_html(ucfirst($backup['status'])); ?>
+                                        </span>
+                                    <?php endif; ?>
                             </td>
                             <td>
                                 <?php
@@ -1486,7 +1497,8 @@ function wpvault_display_backups_page()
                                 var logs = response.data.logs || [];
 
                                 // Debug logging
-                                console.log('[WP Vault] Restore status:', status, 'Progress:', progress + '%');
+                                console.log('[WP Vault] Restore polling - ID:', restoreId, 'Status:', status, 'Progress:', progress + '%');
+                                if (message) console.log('[WP Vault] Restore message:', message);
 
                                 $('#wpv-restore-progress-fill').css('width', progress + '%');
                                 $('#wpv-restore-progress-text').text(progress + '%');
@@ -1496,12 +1508,12 @@ function wpvault_display_backups_page()
                                     renderRestoreLogs(logs);
                                 }
 
-                                if (status === 'completed' || status === 'failed') {
+                                if (status === 'completed' || status === 'restored' || status === 'failed' || status === 'interrupted') {
                                     console.log('[WP Vault] Restore finished with status:', status);
                                     clearInterval(pollInterval);
                                     $('#wpv-restore-modal-actions').show();
 
-                                    if (status === 'completed') {
+                                    if (status === 'completed' || status === 'restored') {
                                         $('#wpv-restore-progress-fill').css('background', '#46b450');
                                         $('#wpv-restore-progress-message').text('<?php echo esc_js(esc_html__('Restore completed successfully!', 'wp-vault')); ?>');
                                         setTimeout(function () {
@@ -1570,6 +1582,17 @@ function wpvault_display_backups_page()
                 }
             });
         </script>
+        <style>
+            .wpv-status-restored {
+                background: #46b450;
+                color: #fff;
+            }
+
+            .wpv-status-interrupted {
+                background: #d63638;
+                color: #fff;
+            }
+        </style>
     </div>
     <?php
 }

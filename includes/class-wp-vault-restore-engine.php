@@ -21,15 +21,23 @@ class WP_Vault_Restore_Engine
     private $restore_options;
     private $log;
 
-    // Tables to exclude from restore (runtime/cache tables)
+    // Tables to exclude from restore (runtime/cache tables + history tracking)
     // Note: Actual table names have double prefix (wp_wp_vault_*), so we check for both
+    // CRITICAL: History tables must be excluded to prevent overwriting current restore status
     private $excluded_tables = array(
         'wp_vault_jobs',
         'wp_vault_job_logs',
         'wp_vault_file_index',
-        'wp_wp_vault_jobs',      // Handle double prefix
-        'wp_wp_vault_job_logs',  // Handle double prefix
-        'wp_wp_vault_file_index', // Handle double prefix
+        'wp_vault_backup_history',      // History tracking - must not be overwritten
+        'wp_vault_restore_history',     // History tracking - must not be overwritten
+        'wp_wp_vault_jobs',             // Handle double prefix
+        'wp_wp_vault_job_logs',         // Handle double prefix
+        'wp_wp_vault_file_index',       // Handle double prefix
+        'wp_wp_vault_backup_history',   // Handle double prefix
+        'wp_wp_vault_restore_history',  // Handle double prefix
+        'wp_pc_wp_vault_jobs',          // Handle prefixed installations
+        'wp_pc_wp_vault_backup_history', // Handle prefixed installations
+        'wp_pc_wp_vault_restore_history', // Handle prefixed installations
     );
 
     public function __construct($backup_file, $restore_mode = 'full', $restore_id = null, $restore_options = array())
@@ -214,7 +222,7 @@ class WP_Vault_Restore_Engine
             $this->log->write_log('===== RESTORE COMPLETED SUCCESSFULLY =====', 'info');
             $this->log->write_log('Final Memory Usage: ' . size_format(memory_get_usage(true)), 'info');
             $this->log->write_log('Peak Memory Usage: ' . size_format(memory_get_peak_usage(true)), 'info');
-            $this->log_progress('Restore complete!', 100, 'completed');
+            $this->log_progress('Restore complete!', 100, 'restored');
 
             // Close log file
             $this->log->close_file();
@@ -1706,22 +1714,31 @@ class WP_Vault_Restore_Engine
                 }
             } else {
                 // Normal update path
+                $update_data = array(
+                    'status' => $status,
+                    'progress_percent' => $percent,
+                    'updated_at' => current_time('mysql'),
+                );
+                $format = array('%s', '%d', '%s');
+
+                // Set finished_at for terminal statuses
+                if ($status === 'restored' || $status === 'completed' || $status === 'failed' || $status === 'cancelled') {
+                    $update_data['finished_at'] = current_time('mysql');
+                    $format[] = '%s';
+                }
+
                 $update_result = $wpdb->update(
                     $table,
-                    array(
-                        'status' => $status,
-                        'progress_percent' => $percent,
-                        'updated_at' => current_time('mysql'),
-                    ),
+                    $update_data,
                     array('backup_id' => $this->restore_id),
-                    array('%s', '%d', '%s'),
+                    $format,
                     array('%s')
                 );
 
                 // Log if update failed (for debugging)
                 if ($update_result === false && !empty($wpdb->last_error)) {
                     $this->log_php('[WP Vault] WARNING: Failed to update restore status in log_progress. Error: ' . $wpdb->last_error);
-                } else if ($status === 'completed' || $status === 'failed') {
+                } else if ($status === 'restored' || $status === 'completed' || $status === 'failed') {
                     $this->log_php('[WP Vault] log_progress: Updated restore status to: ' . $status . ' (rows affected: ' . ($update_result !== false ? $update_result : 0) . ', restore_id: ' . $this->restore_id . ')');
                 }
             }
@@ -1826,7 +1843,7 @@ class WP_Vault_Restore_Engine
                 }
             }
 
-            $this->log_progress('Restore complete', 100);
+            $this->log_progress('Restore complete', 100, 'restored');
             $this->log->write_log('===== INCREMENTAL RESTORE COMPLETE =====', 'info');
 
             return true;

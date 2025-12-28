@@ -38,6 +38,17 @@ function wpvault_display_backups_tab()
         ARRAY_A
     );
 
+    // Get list of backups that have been successfully restored from
+    $jobs_table = $wpdb->prefix . 'wp_vault_jobs';
+    $restored_backup_ids = $wpdb->get_col(
+        "SELECT DISTINCT source_backup_id 
+         FROM {$jobs_table} 
+         WHERE job_type = 'restore' AND status IN ('restored', 'completed') AND source_backup_id IS NOT NULL"
+    );
+    $restored_from_map = array_flip($restored_backup_ids); // Create quick lookup map
+
+    $restored_from_map = array_flip($restored_backup_ids); // Create quick lookup map
+
     // Get local backup files (grouped by backup_id)
     $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
     $local_backups = array();
@@ -210,6 +221,7 @@ function wpvault_display_backups_tab()
             'has_remote_files' => $has_remote,
             'files' => $files,
             'components' => $components,
+            'restored_from' => isset($restored_from_map[$backup_id]), // Check if this backup has been restored
         );
     }
 
@@ -245,6 +257,7 @@ function wpvault_display_backups_tab()
                 'has_remote_files' => intval($history_item['has_remote_files']) === 1,
                 'files' => $local_backup_data ? $local_backup_data['files'] : array(),
                 'components' => $local_backup_data ? $local_backup_data['components'] : array(),
+                'restored_from' => isset($restored_from_map[$backup_id]), // Check if this backup has been restored
             );
         }
     }
@@ -421,10 +434,18 @@ function wpvault_display_backups_tab()
                                 <td>
                                     <strong><?php echo esc_html(size_format($total_size)); ?></strong>
                                     <?php if (isset($backup['status'])): ?>
-                                        <br><span class="wpv-status wpv-status-<?php echo esc_attr($backup['status']); ?>"
-                                            style="font-size:11px; margin-top:3px; display:inline-block;">
-                                            <?php echo esc_html(ucfirst($backup['status'])); ?>
-                                        </span>
+                                        <br>
+                                        <div class="wpv-status-group" style="display:flex; gap:5px; margin-top:3px;">
+                                            <span class="wpv-status wpv-status-<?php echo esc_attr($backup['status']); ?>"
+                                                style="font-size:11px; display:inline-block;">
+                                                <?php echo esc_html(ucfirst($backup['status'])); ?>
+                                            </span>
+                                            <?php if (!empty($backup['restored_from'])): ?>
+                                                <span class="wpv-status wpv-status-restored" style="font-size:11px; display:inline-block;">
+                                                    Restored
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
                                     <?php endif; ?>
                                 </td>
                                 <td>
