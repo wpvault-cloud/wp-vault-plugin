@@ -108,9 +108,24 @@ class WP_Vault_Backup_Engine
             @ini_set('max_execution_time', '0');
         }
 
+        // Get backup metadata for logging
+        global $wpdb;
+        $table = $wpdb->prefix . 'wp_vault_jobs';
+        $job_meta = $wpdb->get_row($wpdb->prepare(
+            "SELECT schedule_id, trigger_source FROM $table WHERE backup_id = %s",
+            $this->backup_id
+        ));
+
+        $schedule_id = $job_meta ? $job_meta->schedule_id : null;
+        $trigger_source = $job_meta ? $job_meta->trigger_source : 'unknown';
+
         $this->log->write_log('===== BACKUP STARTED =====', 'info');
         $this->log->write_log('Backup ID: ' . $this->backup_id, 'info');
         $this->log->write_log('Backup Type: ' . $this->backup_type, 'info');
+        $this->log->write_log('Trigger Source: ' . esc_html($trigger_source), 'info');
+        if ($schedule_id) {
+            $this->log->write_log('Schedule ID: ' . esc_html($schedule_id), 'info');
+        }
         $this->log->write_log('PHP Memory Limit: ' . ini_get('memory_limit'), 'info');
         $this->log->write_log('Max Execution Time: ' . ini_get('max_execution_time'), 'info');
         $this->log->write_log('Current Memory Usage: ' . size_format(memory_get_usage(true)), 'info');
@@ -787,15 +802,26 @@ class WP_Vault_Backup_Engine
      */
     private function create_component_archive_fast($component_name, $files, $db_file, $base_path, $split_size)
     {
-        // For database component, just copy the db file (it's already compressed as .sql.gz)
+        // For database component, use the .sql.gz file directly
+        // This avoids naming confusion (database-ID.sql.gz.tar.gz) and extra extraction steps
         if ($component_name === 'database' && $db_file) {
             if (file_exists($db_file)) {
-                // Save database file with .sql.gz extension (not .tar.gz)
                 $db_filename = 'database-' . $this->backup_id . '.sql.gz';
                 $db_path = dirname($base_path) . '/' . $db_filename;
-                copy($db_file, $db_path);
-                $this->log_php('[WP Vault] Database file saved: ' . $db_filename);
-                return array($db_path);
+
+                // If it's already named correctly, just return it
+                if ($db_file === $db_path) {
+                    return array($db_file);
+                }
+
+                // Otherwise copy/rename it
+                if (copy($db_file, $db_path)) {
+                    $this->log_php('[WP Vault] Database file saved: ' . $db_filename);
+                    return array($db_path);
+                } else {
+                    $this->log_php('[WP Vault] WARNING: Failed to copy database file, returning original: ' . basename($db_file));
+                    return array($db_file);
+                }
             }
             return array();
         }
@@ -1462,6 +1488,76 @@ class WP_Vault_Backup_Engine
             $format,
             array('%s')
         );
+
+        // Update backup_history table
+        $history_table = $wpdb->prefix . 'wp_vault_backup_history';
+        $history_update_data = array(
+            'status' => $status,
+            'progress_percent' => $percent,
+            'error_message' => $status === 'error' ? $message : null,
+        );
+        $history_format = array('%s', '%d', '%s');
+
+        // Set finished_at when completed or failed
+        if ($status === 'completed' || $status === 'failed') {
+            $history_update_data['finished_at'] = current_time('mysql');
+            $history_format[] = '%s';
+        }
+
+        // If we have size in manifest, include it
+        if (isset($this->manifest['total_size']) && $this->manifest['total_size'] > 0) {
+            $history_update_data['total_size_bytes'] = $this->manifest['total_size'];
+            $history_format[] = '%d';
+        }
+
+        // Check if local files exist
+        $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
+        $manifest_file = $backup_dir . 'backup-' . $this->backup_id . '-manifest.json';
+        $has_local_files = file_exists($manifest_file) ? 1 : 0;
+
+        // If completed, ensure has_local_files is set correctly
+        if ($status === 'completed') {
+            $history_update_data['has_local_files'] = $has_local_files;
+            $history_format[] = '%d';
+        }
+
+        // Ensure record exists before updating
+        $existing_history = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$history_table} WHERE backup_id = %s",
+            $this->backup_id
+        ));
+
+        if (!$existing_history) {
+            // Create record if it doesn't exist
+            $wpdb->replace(
+                $history_table,
+                array(
+                    'backup_id' => $this->backup_id,
+                    'job_type' => 'backup',
+                    'backup_type' => $this->backup_type,
+                    'status' => $status,
+                    'progress_percent' => $percent,
+                    'source' => 'local',
+                    'has_local_files' => $has_local_files,
+                    'has_remote_files' => 1, // Assumed uploaded to SaaS
+                    'trigger_source' => 'manual',
+                    'started_at' => current_time('mysql'),
+                    'finished_at' => ($status === 'completed' || $status === 'failed') ? current_time('mysql') : null,
+                    'error_message' => $status === 'error' ? $message : null,
+                    'total_size_bytes' => isset($this->manifest['total_size']) ? $this->manifest['total_size'] : 0,
+                ),
+                array('%s', '%s', '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%d')
+            );
+        } else {
+            // Update existing record
+            $wpdb->update(
+                $history_table,
+                $history_update_data,
+                array('backup_id' => $this->backup_id),
+                $history_format,
+                array('%s')
+            );
+        }
 
         // Log to file instead of database
         if ($this->log) {

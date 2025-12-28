@@ -32,9 +32,11 @@ class WP_Vault_Activator
 
         // Create wp_wp_vault_settings table
         $table_settings = $wpdb->prefix . 'wp_vault_settings';
+        $table_settings_escaped = esc_sql($table_settings);
         $charset_collate = $wpdb->get_charset_collate();
 
-        $sql_settings = "CREATE TABLE IF NOT EXISTS $table_settings (
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
+        $sql_settings = "CREATE TABLE IF NOT EXISTS {$table_settings_escaped} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             setting_key varchar(255) NOT NULL,
             setting_value longtext,
@@ -44,8 +46,10 @@ class WP_Vault_Activator
 
         // Create wp_wp_vault_file_index table
         $table_files = $wpdb->prefix . 'wp_vault_file_index';
+        $table_files_escaped = esc_sql($table_files);
 
-        $sql_files = "CREATE TABLE IF NOT EXISTS $table_files (
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
+        $sql_files = "CREATE TABLE IF NOT EXISTS {$table_files_escaped} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             file_path varchar(500) NOT NULL,
             file_hash varchar(64) NOT NULL,
@@ -59,8 +63,10 @@ class WP_Vault_Activator
 
         // Create wp_wp_vault_jobs table
         $table_jobs = $wpdb->prefix . 'wp_vault_jobs';
+        $table_jobs_escaped = esc_sql($table_jobs);
 
-        $sql_jobs = "CREATE TABLE IF NOT EXISTS $table_jobs (
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
+        $sql_jobs = "CREATE TABLE IF NOT EXISTS {$table_jobs_escaped} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             job_type varchar(50) NOT NULL,
             status varchar(50) DEFAULT 'pending',
@@ -77,56 +83,74 @@ class WP_Vault_Activator
         ) $charset_collate;";
 
         // Add total_size_bytes column if table exists but column doesn't
-        $column_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'total_size_bytes'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+        $column_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'total_size_bytes'));
         if (empty($column_exists)) {
-            $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN total_size_bytes bigint(20) DEFAULT 0 AFTER progress_percent");
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+            $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN total_size_bytes bigint(20) DEFAULT 0 AFTER progress_percent");
         }
 
         // Add updated_at column if table exists but column doesn't
-        $updated_at_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'updated_at'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+        $updated_at_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'updated_at'));
         if (empty($updated_at_exists)) {
-            $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at");
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+            $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at");
         }
 
         // Add log_file_path column if table exists but column doesn't
-        $log_file_path_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'log_file_path'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+        $log_file_path_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'log_file_path'));
         if (empty($log_file_path_exists)) {
             // Check if error_message exists before using AFTER
-            $error_message_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'error_message'");
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+            $error_message_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'error_message'));
             if (!empty($error_message_exists)) {
-                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
             } else {
-                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN log_file_path varchar(255) DEFAULT NULL");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN log_file_path varchar(255) DEFAULT NULL");
             }
         }
 
         // Add cursor column for resumable jobs (cursor is a reserved keyword, must escape)
-        $cursor_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'cursor'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+        $cursor_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'cursor'));
         if (empty($cursor_exists)) {
             // Check if log_file_path exists before using AFTER
-            $log_file_path_check = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'log_file_path'");
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+            $log_file_path_check = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'log_file_path'));
             if (!empty($log_file_path_check)) {
-                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN `cursor` TEXT DEFAULT NULL AFTER log_file_path");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN `cursor` TEXT DEFAULT NULL AFTER log_file_path");
             } else {
-                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN `cursor` TEXT DEFAULT NULL");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN `cursor` TEXT DEFAULT NULL");
             }
         }
 
         // Add phase column for job phase tracking
-        $phase_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'phase'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+        $phase_exists = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'phase'));
         if (empty($phase_exists)) {
             // Check if cursor exists before using AFTER
-            $cursor_check = $wpdb->get_results("SHOW COLUMNS FROM $table_jobs LIKE 'cursor'");
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check for migration, table name is escaped
+            $cursor_check = $wpdb->get_results($wpdb->prepare("SHOW COLUMNS FROM {$table_jobs_escaped} LIKE %s", 'cursor'));
             if (!empty($cursor_check)) {
-                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN phase varchar(20) DEFAULT NULL AFTER cursor");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL AFTER cursor");
             } else {
-                $wpdb->query("ALTER TABLE $table_jobs ADD COLUMN phase varchar(20) DEFAULT NULL");
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migration, table name is escaped
+                $wpdb->query("ALTER TABLE {$table_jobs_escaped} ADD COLUMN phase varchar(20) DEFAULT NULL");
             }
         }
 
         // Create wp_wp_vault_job_logs table (local cache of per-step logs)
         $table_job_logs = $wpdb->prefix . 'wp_vault_job_logs';
-        $sql_job_logs = "CREATE TABLE IF NOT EXISTS $table_job_logs (
+        $table_job_logs_escaped = esc_sql($table_job_logs);
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
+        $sql_job_logs = "CREATE TABLE IF NOT EXISTS {$table_job_logs_escaped} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             backup_id varchar(255) NOT NULL,
             level varchar(20) DEFAULT 'INFO',

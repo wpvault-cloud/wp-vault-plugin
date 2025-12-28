@@ -26,6 +26,18 @@ function wpvault_display_backups_tab()
     $backups_result = $api->get_backups();
     $saas_backups = $backups_result['success'] ? $backups_result['data']['backups'] : array();
 
+    // Sync remote backups to local history
+    global $wpdb;
+    $wp_vault_instance = \WP_Vault\WP_Vault::get_instance();
+    $wp_vault_instance->sync_remote_backups_to_history($saas_backups);
+
+    // Get local backup history from database
+    $history_table = $wpdb->prefix . 'wp_vault_backup_history';
+    $local_history = $wpdb->get_results(
+        "SELECT * FROM {$history_table} ORDER BY created_at DESC",
+        ARRAY_A
+    );
+
     // Get local backup files (grouped by backup_id)
     $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
     $local_backups = array();
@@ -111,13 +123,19 @@ function wpvault_display_backups_tab()
         });
     }
 
-    // Merge SaaS and local backups
+    // Create a map of backup history by backup_id
+    $history_map = array();
+    foreach ($local_history as $history_item) {
+        $history_map[$history_item['backup_id']] = $history_item;
+    }
+
+    // Merge SaaS and local backups using history
     $all_backups = array();
-    $saas_backup_ids = array();
+    $processed_backup_ids = array();
 
     foreach ($saas_backups as $backup) {
         $backup_id = $backup['id'];
-        $saas_backup_ids[] = $backup_id;
+        $processed_backup_ids[] = $backup_id;
 
         $components = array();
         $files = array();
@@ -161,24 +179,73 @@ function wpvault_display_backups_tab()
             }
         }
 
+        // Get history data if available
+        $history_data = isset($history_map[$backup_id]) ? $history_map[$backup_id] : null;
+
+        // Determine source badge
+        $has_local = $history_data ? (intval($history_data['has_local_files']) === 1) : false;
+        $has_remote = $history_data ? (intval($history_data['has_remote_files']) === 1) : true;
+
+        if ($has_local && $has_remote) {
+            $source_badge = 'both';
+            $source_label = 'Local & Remote';
+        } elseif ($has_local) {
+            $source_badge = 'local';
+            $source_label = 'Local Only';
+        } else {
+            $source_badge = 'remote';
+            $source_label = 'Remote Only';
+        }
+
         $all_backups[] = array(
             'backup_id' => $backup_id,
-            'backup_type' => isset($backup['backup_type']) ? $backup['backup_type'] : 'full',
-            'status' => isset($backup['status']) ? $backup['status'] : 'unknown',
-            'total_size' => isset($backup['total_size_bytes']) ? $backup['total_size_bytes'] : 0,
-            'created_at' => isset($backup['created_at']) ? $backup['created_at'] : gmdate('Y-m-d H:i:s'),
-            'date' => isset($backup['finished_at']) ? strtotime($backup['finished_at']) : (isset($backup['created_at']) ? strtotime($backup['created_at']) : time()),
-            'source' => 'saas',
+            'backup_type' => isset($backup['backup_type']) ? $backup['backup_type'] : ($history_data ? $history_data['backup_type'] : 'full'),
+            'status' => isset($backup['status']) ? $backup['status'] : ($history_data ? $history_data['status'] : 'unknown'),
+            'total_size' => isset($backup['total_size_bytes']) ? $backup['total_size_bytes'] : ($history_data ? intval($history_data['total_size_bytes']) : 0),
+            'created_at' => isset($backup['created_at']) ? $backup['created_at'] : ($history_data ? $history_data['created_at'] : gmdate('Y-m-d H:i:s')),
+            'date' => isset($backup['finished_at']) ? strtotime($backup['finished_at']) : (isset($backup['created_at']) ? strtotime($backup['created_at']) : ($history_data && $history_data['finished_at'] ? strtotime($history_data['finished_at']) : ($history_data && $history_data['created_at'] ? strtotime($history_data['created_at']) : time()))),
+            'source' => $source_badge,
+            'source_label' => $source_label,
+            'has_local_files' => $has_local,
+            'has_remote_files' => $has_remote,
             'files' => $files,
             'components' => $components,
         );
     }
 
-    // Add local backups not in SaaS
-    foreach ($local_backups as $local_backup) {
-        if (!in_array($local_backup['backup_id'], $saas_backup_ids)) {
-            $local_backup['source'] = 'local';
-            $all_backups[] = $local_backup;
+    // Add local backups from history that aren't in SaaS
+    foreach ($local_history as $history_item) {
+        $backup_id = $history_item['backup_id'];
+        if (!in_array($backup_id, $processed_backup_ids)) {
+            $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
+            $manifest_file = $backup_dir . 'backup-' . $backup_id . '-manifest.json';
+            $has_local = file_exists($manifest_file);
+
+            $local_backup_data = null;
+            foreach ($local_backups as $lb) {
+                if ($lb['backup_id'] === $backup_id) {
+                    $local_backup_data = $lb;
+                    break;
+                }
+            }
+
+            $source_badge = $has_local ? 'local' : 'remote';
+            $source_label = $has_local ? 'Local Only' : 'Remote Only';
+
+            $all_backups[] = array(
+                'backup_id' => $backup_id,
+                'backup_type' => $history_item['backup_type'],
+                'status' => $history_item['status'],
+                'total_size' => intval($history_item['total_size_bytes']),
+                'created_at' => $history_item['created_at'],
+                'date' => $history_item['finished_at'] ? strtotime($history_item['finished_at']) : strtotime($history_item['created_at']),
+                'source' => $source_badge,
+                'source_label' => $source_label,
+                'has_local_files' => $has_local,
+                'has_remote_files' => intval($history_item['has_remote_files']) === 1,
+                'files' => $local_backup_data ? $local_backup_data['files'] : array(),
+                'components' => $local_backup_data ? $local_backup_data['components'] : array(),
+            );
         }
     }
 
@@ -264,7 +331,9 @@ function wpvault_display_backups_tab()
                     <thead>
                         <tr>
                             <th style="width:30px;"></th>
-                            <th><?php esc_html_e('Backup', 'wp-vault'); ?></th>
+                            <th><?php esc_html_e('Backup History', 'wp-vault'); ?></th>
+                            <th style="text-align:center; width:100px;"><?php esc_html_e('Local Backup', 'wp-vault'); ?></th>
+                            <th style="text-align:center; width:100px;"><?php esc_html_e('Cloud Backup', 'wp-vault'); ?></th>
                             <th><?php esc_html_e('Size', 'wp-vault'); ?></th>
                             <th><?php esc_html_e('Components', 'wp-vault'); ?></th>
                             <th><?php esc_html_e('Date', 'wp-vault'); ?></th>
@@ -309,11 +378,45 @@ function wpvault_display_backups_tab()
                                     <strong><?php echo esc_html($backup_name); ?></strong>
                                     <br>
                                     <small style="color:#666;">ID: <?php echo esc_html($backup_id); ?></small>
-                                    <?php if (isset($backup['source']) && $backup['source'] === 'saas'): ?>
-                                        <br><small style="color:#2271b1;">☁️ Cloud Backup</small>
-                                    <?php elseif (isset($backup['source']) && $backup['source'] === 'local'): ?>
-                                        <br><small style="color:#666;">💾 Local Backup</small>
-                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align:center;">
+                                    <?php
+                                    // Check if local files actually exist on filesystem (not just database value)
+                                    $manifest_file = $backup_dir . 'backup-' . $backup_id . '-manifest.json';
+                                    $has_local = file_exists($manifest_file);
+
+                                    // If no manifest, check for component files
+                                    if (!$has_local) {
+                                        $patterns = array(
+                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
+                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
+                                            $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
+                                        );
+                                        foreach ($patterns as $pattern) {
+                                            $files = glob($pattern, GLOB_BRACE);
+                                            if ($files && is_array($files) && count($files) > 0) {
+                                                $has_local = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if ($has_local) {
+                                        echo '<span class="dashicons dashicons-yes-alt" style="color:#00a32a; font-size:20px;" title="' . esc_attr__('Local backup available', 'wp-vault') . '"></span>';
+                                    } else {
+                                        echo '<span class="dashicons dashicons-dismiss" style="color:#d63638; font-size:20px;" title="' . esc_attr__('Local backup not available', 'wp-vault') . '"></span>';
+                                    }
+                                    ?>
+                                </td>
+                                <td style="text-align:center;">
+                                    <?php
+                                    $has_remote = isset($backup['has_remote_files']) ? (bool) $backup['has_remote_files'] : false;
+                                    if ($has_remote) {
+                                        echo '<span class="dashicons dashicons-yes-alt" style="color:#00a32a; font-size:20px;" title="' . esc_attr__('Cloud backup available', 'wp-vault') . '"></span>';
+                                    } else {
+                                        echo '<span class="dashicons dashicons-dismiss" style="color:#d63638; font-size:20px;" title="' . esc_attr__('Cloud backup not available', 'wp-vault') . '"></span>';
+                                    }
+                                    ?>
                                 </td>
                                 <td>
                                     <strong><?php echo esc_html(size_format($total_size)); ?></strong>
@@ -335,7 +438,7 @@ function wpvault_display_backups_tab()
                                     ?>
                                 </td>
                                 <td><?php echo esc_html(gmdate('M j, Y g:i a', $backup_date)); ?></td>
-                                <td>
+                                <td class="wpv-backup-actions" data-backup-id="<?php echo esc_attr($backup_id); ?>">
                                     <?php
                                     $primary_file = !empty($backup['files']) ? $backup['files'][0]['filename'] : 'backup-' . $backup_id . '.tar.gz';
                                     $primary_path = $backup_dir . $primary_file;
@@ -348,21 +451,53 @@ function wpvault_display_backups_tab()
                                             }
                                         }
                                     }
+
+                                    // Check if backup has local files
+                                    $has_local_files = false;
+                                    $manifest_file = $backup_dir . 'backup-' . $backup_id . '-manifest.json';
+                                    if (file_exists($manifest_file)) {
+                                        $has_local_files = true;
+                                    } else {
+                                        // Check if any component files exist
+                                        $patterns = array(
+                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
+                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
+                                            $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
+                                        );
+                                        foreach ($patterns as $pattern) {
+                                            $files = glob($pattern, GLOB_BRACE);
+                                            if ($files && is_array($files) && count($files) > 0) {
+                                                $has_local_files = true;
+                                                break;
+                                            }
+                                        }
+                                    }
                                     ?>
-                                    <button class="button button-primary wpv-restore-backup-btn"
-                                        data-backup-id="<?php echo esc_attr($backup_id); ?>"
-                                        data-backup-file="<?php echo esc_attr($primary_file); ?>"
-                                        data-backup-path="<?php echo esc_attr($primary_path); ?>">
-                                        <?php esc_html_e('Restore', 'wp-vault'); ?>
-                                    </button>
-                                    <button class="button wpv-download-backup-btn"
-                                        data-backup-id="<?php echo esc_attr($backup_id); ?>" style="margin-left: 5px;">
-                                        <?php esc_html_e('Download', 'wp-vault'); ?>
-                                    </button>
-                                    <button class="button wpv-delete-backup-btn"
-                                        data-backup-id="<?php echo esc_attr($backup_id); ?>" style="margin-left: 5px;">
-                                        <?php esc_html_e('Delete', 'wp-vault'); ?>
-                                    </button>
+                                    <?php if ($has_local_files): ?>
+                                        <button class="button button-primary wpv-restore-backup-btn"
+                                            data-backup-id="<?php echo esc_attr($backup_id); ?>"
+                                            data-backup-file="<?php echo esc_attr($primary_file); ?>"
+                                            data-backup-path="<?php echo esc_attr($primary_path); ?>">
+                                            <?php esc_html_e('Restore', 'wp-vault'); ?>
+                                        </button>
+                                        <button class="button wpv-download-backup-btn"
+                                            data-backup-id="<?php echo esc_attr($backup_id); ?>" style="margin-left: 5px;">
+                                            <?php esc_html_e('Download', 'wp-vault'); ?>
+                                        </button>
+                                        <button class="button wpv-delete-backup-btn"
+                                            data-backup-id="<?php echo esc_attr($backup_id); ?>" style="margin-left: 5px;">
+                                            <?php esc_html_e('Delete File', 'wp-vault'); ?>
+                                        </button>
+                                    <?php else: ?>
+                                        <button class="button button-primary wpv-download-from-remote-btn"
+                                            data-backup-id="<?php echo esc_attr($backup_id); ?>">
+                                            <?php esc_html_e('Download from Remote', 'wp-vault'); ?>
+                                        </button>
+                                        <button class="button wpv-remove-from-db-btn"
+                                            data-backup-id="<?php echo esc_attr($backup_id); ?>" style="margin-left: 5px;">
+                                            <?php esc_html_e('Remove from DB', 'wp-vault'); ?>
+                                        </button>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                             <?php if ($has_components): ?>
@@ -409,29 +544,62 @@ function wpvault_display_backups_tab()
                                                                 $is_cloud = false;
                                                             }
 
+                                                            // Find matching file from backup['files'] array
+                                                            // Match by component name prefix in filename (e.g., "database-", "themes-", "plugins-")
                                                             $file_info = null;
                                                             if (!empty($backup['files'])) {
                                                                 foreach ($backup['files'] as $file) {
-                                                                    if (isset($file['component']) && $file['component'] === $component_name) {
+                                                                    $filename = isset($file['filename']) ? $file['filename'] : '';
+                                                                    // Check if filename starts with component name
+                                                                    if (!empty($filename) && strpos($filename, $component_name . '-') === 0) {
                                                                         $file_info = $file;
+                                                                        // Ensure path is set correctly
+                                                                        if (!isset($file_info['path']) && isset($file_info['filename'])) {
+                                                                            $file_info['path'] = $backup_dir . $file_info['filename'];
+                                                                        }
                                                                         break;
                                                                     }
                                                                 }
                                                             }
 
-                                                            if (!$file_info && !$is_cloud) {
-                                                                $possible_path = $backup_dir . $archive_filename;
-                                                                if (file_exists($possible_path)) {
-                                                                    $file_info = array(
-                                                                        'filename' => $archive_filename,
-                                                                        'path' => $possible_path,
-                                                                        'size' => filesize($possible_path),
-                                                                    );
+                                                            // If still no match and not cloud, try to find file by component name pattern
+                                                            if (!$file_info && !$is_cloud && !empty($backup_id)) {
+                                                                // Try to find file matching component name pattern: component-backupid-*.ext
+                                                                $pattern = $component_name . '-' . $backup_id . '*';
+                                                                $matching_files = glob($backup_dir . $pattern);
+                                                                if (!empty($matching_files)) {
+                                                                    $found_file = $matching_files[0];
+                                                                    $found_filename = basename($found_file);
+                                                                    if (file_exists($found_file)) {
+                                                                        $file_info = array(
+                                                                            'filename' => $found_filename,
+                                                                            'path' => $found_file,
+                                                                            'size' => filesize($found_file),
+                                                                        );
+                                                                    }
                                                                 }
                                                             }
 
-                                                            $display_filename = $file_info ? $file_info['filename'] : $archive_filename;
-                                                            $display_size = $file_info ? (isset($file_info['size']) ? $file_info['size'] : 0) : $file_size;
+                                                            // Use file_info if available, otherwise construct from archive path
+                                                            if ($file_info) {
+                                                                $display_filename = $file_info['filename'];
+                                                                $local_file_path = isset($file_info['path']) ? $file_info['path'] : $backup_dir . $display_filename;
+                                                                // Always get actual file size from filesystem if file exists
+                                                                if (file_exists($local_file_path)) {
+                                                                    $display_size = filesize($local_file_path);
+                                                                } else {
+                                                                    $display_size = isset($file_info['size']) ? $file_info['size'] : 0;
+                                                                }
+                                                            } else {
+                                                                $display_filename = $archive_filename;
+                                                                $local_file_path = $backup_dir . $display_filename;
+                                                                // Try to get actual size from filesystem
+                                                                if (file_exists($local_file_path)) {
+                                                                    $display_size = filesize($local_file_path);
+                                                                } else {
+                                                                    $display_size = $file_size;
+                                                                }
+                                                            }
                                                             ?>
                                                             <tr>
                                                                 <td style="padding:8px;"><strong><?php echo esc_html($component_label); ?></strong>
@@ -449,7 +617,6 @@ function wpvault_display_backups_tab()
                                                                             style="color:#666; font-size:11px;"><?php esc_html_e('Stored in cloud', 'wp-vault'); ?></span>
                                                                     <?php else: ?>
                                                                         <?php
-                                                                        $local_file_path = isset($file_info['path']) ? $file_info['path'] : $backup_dir . $display_filename;
                                                                         if (file_exists($local_file_path)): ?>
                                                                             <a href="<?php echo esc_url(admin_url('admin-ajax.php?action=wpv_download_backup_file&file=' . urlencode($display_filename) . '&nonce=' . wp_create_nonce('wp-vault'))); ?>"
                                                                                 class="button button-small">

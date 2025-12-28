@@ -282,9 +282,10 @@ class WP_Vault_Restore_Engine
 
         // Handle database files - check by filename pattern, not just extension
         // Database files can be: database-{id}.sql.gz, database-{id}-{date}.sql.gz, or database-{id}-{date}.gz
-        if (preg_match('/^database-.*\.(sql\.gz|gz)$/i', $basename)) {
+        // We MUST skip archives (.tar.gz, .zip) here so they go to the extraction logic below
+        if (preg_match('/^database-.*\.(sql\.gz|gz)$/i', $basename) && !preg_match('/\.(tar\.gz|zip)$/i', $basename)) {
             $target_path = $extract_dir . $basename;
-            $this->log_php('[WP Vault] Detected database file, copying (not extracting): ' . $basename);
+            $this->log_php('[WP Vault] Detected pure database file, copying (not extracting): ' . $basename);
             if (!copy($archive_path, $target_path)) {
                 throw new \Exception(esc_html('Failed to copy database file: ' . $basename));
             }
@@ -516,14 +517,28 @@ class WP_Vault_Restore_Engine
                     continue;
                 }
 
+                // Normalize relative path
                 $relative_path = str_replace($extract_dir, '', $file->getPathname());
+                // Remove backup ID prefix if present (e.g. backup-ABC123xyz/)
+                $relative_path = preg_replace('/^backup-[^\/]+\//', '', $relative_path);
+                // Remove leading slashes
+                $relative_path = ltrim($relative_path, '/');
 
                 // Check if this file belongs to a selected component
                 $should_restore = false;
                 $matched_component = null;
                 foreach ($components_to_restore as $component) {
                     if (isset($component_paths[$component])) {
-                        if (strpos($relative_path, $component_paths[$component]) === 0) {
+                        $base_path = $component_paths[$component]; // e.g. 'wp-content/themes/'
+                        $alt_path = str_replace('wp-content/', '', $base_path); // e.g. 'themes/'
+
+                        // Check multiple path patterns to handle various tar.gz structures
+                        if (
+                            strpos($relative_path, $base_path) === 0 ||
+                            strpos($relative_path, $alt_path) === 0 ||
+                            strpos($relative_path, '/' . $base_path) !== false ||
+                            strpos($relative_path, '/' . $alt_path) !== false
+                        ) {
                             $should_restore = true;
                             $matched_component = $component;
                             break;
@@ -625,8 +640,31 @@ class WP_Vault_Restore_Engine
         // After removing first wp_, we get wp_vault_jobs
         // This should match our exclusion list which has wp_vault_jobs
 
-        // Check both the cleaned name and the original (for double prefix tables)
-        $is_excluded = in_array($table_name_clean, $this->excluded_tables) || in_array($table_name, $this->excluded_tables);
+        // Check multiple variations:
+        // 1. The cleaned name (e.g., "vault_jobs" or "wp_vault_jobs")
+        // 2. The cleaned name with wp_ prefix (e.g., "wp_vault_jobs")
+        // 3. The original table name (for double prefix tables)
+        // 4. Check if cleaned name ends with any excluded table name (for cases like "wpcee35evault_jobs" -> should match "wp_vault_jobs")
+        $is_excluded = in_array($table_name_clean, $this->excluded_tables)
+            || in_array($table_name, $this->excluded_tables)
+            || in_array('wp_' . $table_name_clean, $this->excluded_tables);
+
+        // Also check if any excluded table name is a suffix of the cleaned name
+        // This handles cases where prefix removal leaves "vault_jobs" but we need to match "wp_vault_jobs"
+        if (!$is_excluded) {
+            foreach ($this->excluded_tables as $excluded_table) {
+                // Remove "wp_" prefix from excluded table name for comparison
+                $excluded_base = (strpos($excluded_table, 'wp_') === 0) ? substr($excluded_table, 3) : $excluded_table;
+                // Check if cleaned name ends with the excluded base (e.g., "vault_jobs" matches "wp_vault_jobs")
+                if (
+                    $table_name_clean === $excluded_base || $table_name_clean === $excluded_table ||
+                    (strpos($table_name_clean, $excluded_base) !== false && strpos($table_name_clean, $excluded_base) === (strlen($table_name_clean) - strlen($excluded_base)))
+                ) {
+                    $is_excluded = true;
+                    break;
+                }
+            }
+        }
 
         // Debug: log the check for vault tables
         if (stripos($table_name, 'vault') !== false || $is_excluded) {
@@ -732,6 +770,12 @@ class WP_Vault_Restore_Engine
                     break;
                 }
 
+                // Check if chunk is binary data
+                if ($this->is_binary_data($chunk)) {
+                    $this->log_php('[WP Vault] WARNING: Skipping binary data chunk at offset: ' . ftell($handle));
+                    continue; // Skip this chunk
+                }
+
                 $buffer .= $chunk;
 
                 // Extract complete queries from buffer
@@ -784,7 +828,7 @@ class WP_Vault_Restore_Engine
                     }
 
                     // Transform table names to use temp prefix
-                    $transformed_query = $this->transform_query_for_temp_tables($query, $temp_prefix);
+                    $transformed_query = $this->transform_query_for_temp_tables($query, $temp_prefix, $table_name);
 
                     // For CREATE TABLE, drop existing temp table first to avoid conflicts
                     // Match: CREATE TABLE IF NOT EXISTS `wp_tmp123_wp_posts` or CREATE TABLE wp_tmp123_wp_posts
@@ -956,20 +1000,16 @@ class WP_Vault_Restore_Engine
                 continue;
             }
 
-            // Sanitize table names (remove any backticks and re-add them)
+            // Sanitize table names (remove any backticks)
             $temp_table_clean = str_replace('`', '', $temp_table);
             $original_table_clean = str_replace('`', '', $original_table);
 
             // Skip excluded tables
             // Remove prefix to get base table name for comparison
-            // Handle both single prefix (wp_vault_jobs) and double prefix (wp_wp_vault_jobs)
             $table_name_clean = $original_table_clean;
-            // Remove first prefix if present
             if (strpos($table_name_clean, $table_prefix) === 0) {
                 $table_name_clean = substr($table_name_clean, strlen($table_prefix));
             }
-            // For double prefix tables (wp_wp_vault_jobs), we want wp_vault_jobs for comparison
-            // So we keep it as is after first removal
 
             // Debug logging
             $this->log->write_log('Atomic replacement check: temp=' . $temp_table . ', original=' . $original_table . ', cleaned=' . $table_name_clean, 'info');
@@ -977,9 +1017,7 @@ class WP_Vault_Restore_Engine
             if ($this->is_excluded_table($table_name_clean)) {
                 $this->log->write_log('SKIPPING excluded table during atomic replacement: ' . $table_name_clean . ' (temp: ' . $temp_table . ', original: ' . $original_table . ')', 'notice');
                 // Drop the temp table since we're not using it
-                $temp_table_clean_escaped = esc_sql($temp_table_clean);
-                $drop_result = $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_clean_escaped}`");
-                $this->log->write_log('Dropped excluded temp table: ' . $temp_table_clean . ' (result: ' . ($drop_result !== false ? 'success' : 'failed') . ')', 'info');
+                $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_clean}`");
                 $skipped_count++;
                 continue;
             } else {
@@ -988,17 +1026,28 @@ class WP_Vault_Restore_Engine
 
             $this->log_php('[WP Vault] Replacing: ' . $temp_table . ' -> ' . $original_table);
 
-            // Drop old table if exists
-            $original_table_clean_escaped = esc_sql($original_table_clean);
-            $wpdb->query("DROP TABLE IF EXISTS `{$original_table_clean_escaped}`");
+            // Truly atomic approach: Swap current table to _old and temp table to current in ONE command
+            // This prevents the table from "disappearing" even for a millisecond
+            $old_table_clean = $original_table_clean . '_old_' . time();
 
-            // Rename temp table to original (atomic operation)
-            // Note: RENAME TABLE doesn't support prepared statements, but we use esc_sql for safety
-            $result = $wpdb->query("RENAME TABLE `{$temp_table_clean_escaped}` TO `{$original_table_clean_escaped}`");
+            // Note: RENAME TABLE doesn't support prepared statements, but we use sanitized names inside backticks
+            $query = "RENAME TABLE `{$original_table_clean}` TO `{$old_table_clean}`, `{$temp_table_clean}` TO `{$original_table_clean}`";
+
+            // If the original table doesn't exist (e.g., first restore), just rename temp to original
+            $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $original_table_clean));
+            if (!$table_exists) {
+                $query = "RENAME TABLE `{$temp_table_clean}` TO `{$original_table_clean}`";
+            }
+
+            $result = $wpdb->query($query);
 
             if ($result === false) {
-                $this->log_php('[WP Vault] ERROR: Failed to rename table ' . $temp_table . ' to ' . $original_table . ': ' . $wpdb->last_error);
+                $this->log_php('[WP Vault] ERROR: Failed to swap table ' . $temp_table . ' to ' . $original_table . ': ' . $wpdb->last_error);
             } else {
+                // Drop the old table now that it's been swapped out
+                if ($table_exists) {
+                    $wpdb->query("DROP TABLE IF EXISTS `{$old_table_clean}`");
+                }
                 $replaced_count++;
                 $this->log_php('[WP Vault] Successfully replaced: ' . $original_table);
             }
@@ -1088,31 +1137,32 @@ class WP_Vault_Restore_Engine
     /**
      * Transform SQL query to use temp prefix for table names
      */
-    private function transform_query_for_temp_tables($query, $temp_prefix)
+    private function transform_query_for_temp_tables($query, $temp_prefix, $table_name = null)
     {
-        // Replace table names with temp prefix
-        // Pattern: `wp_posts` or wp_posts → `wp_tmp123_wp_posts` or wp_tmp123_wp_posts
-        // Note: temp_prefix already includes wpdb->prefix, so we're adding it before the existing prefix
-        $table_prefix = $GLOBALS['wpdb']->prefix;
-        $escaped_prefix = preg_quote($table_prefix, '/');
+        // If we have a detected table name, use it specifically for replacement
+        if ($table_name) {
+            $escaped_table = preg_quote($table_name, '/');
+            // Support optional backticks and handle the table name replacement specifically
+            // This is more robust as it doesn't rely on matching the current site's prefix
+            $query = preg_replace('/([`"]?)' . $escaped_table . '([`"]?)/', '$1' . $temp_prefix . $table_name . '$2', $query);
+        } else {
+            // Fallback to prefix-based replacement if no table was detected
+            $table_prefix = $GLOBALS['wpdb']->prefix;
+            $escaped_prefix = preg_quote($table_prefix, '/');
+            $query = preg_replace('/([`"]?)(' . $escaped_prefix . ')([a-zA-Z0-9_]+)([`"]?)/i', '$1' . $temp_prefix . '$2$3$4', $query);
+        }
 
-        // Match table names in CREATE TABLE, INSERT INTO, etc.
-        // We need to match: `wp_posts`, wp_posts, `wp_posts`, etc.
-        $patterns = array(
-            // CREATE TABLE `wp_posts` → CREATE TABLE IF NOT EXISTS `wp_tmp123_wp_posts`
-            // Always add IF NOT EXISTS to prevent errors
-            '/(CREATE\s+TABLE\s+)(?:IF\s+NOT\s+EXISTS\s+)?([`"]?)(' . $escaped_prefix . ')([a-zA-Z0-9_]+)([`"]?)/i' => '$1IF NOT EXISTS $2' . $temp_prefix . '$3$4$5',
-            // INSERT INTO `wp_posts` → INSERT IGNORE INTO `wp_tmp123_wp_posts`
-            // Use IGNORE to prevent duplicate entry errors
-            '/(INSERT\s+)(?:(?:IGNORE|REPLACE)\s+)?(INTO\s+)([`"]?)(' . $escaped_prefix . ')([a-zA-Z0-9_]+)([`"]?)/i' => '$1IGNORE $2$3' . $temp_prefix . '$4$5$6',
-            // UPDATE `wp_posts` → UPDATE `wp_tmp123_wp_posts`
-            '/(UPDATE\s+)([`"]?)(' . $escaped_prefix . ')([a-zA-Z0-9_]+)([`"]?)/i' => '$1$2' . $temp_prefix . '$3$4$5',
-            // DELETE FROM `wp_posts` → DELETE FROM `wp_tmp123_wp_posts`
-            '/(DELETE\s+FROM\s+)([`"]?)(' . $escaped_prefix . ')([a-zA-Z0-9_]+)([`"]?)/i' => '$1$2' . $temp_prefix . '$3$4$5',
-        );
+        // Ensure safety flags are added regardless of prefix matching
+        // Add IGNORE to INSERT/REPLACE statements to prevent duplicate entry errors
+        if (preg_match('/^(INSERT|REPLACE)\s+/i', trim($query))) {
+            if (stripos($query, 'IGNORE') === false) {
+                $query = preg_replace('/^(INSERT|REPLACE)(\s+INTO)/i', '$1 IGNORE$2', trim($query));
+            }
+        }
 
-        foreach ($patterns as $pattern => $replacement) {
-            $query = preg_replace($pattern, $replacement, $query);
+        // Add IF NOT EXISTS to CREATE TABLE statements
+        if (stripos($query, 'CREATE TABLE') !== false && stripos($query, 'IF NOT EXISTS') === false) {
+            $query = preg_replace('/(CREATE\s+TABLE\s+)/i', '$1IF NOT EXISTS ', $query);
         }
 
         return $query;
@@ -1371,18 +1421,146 @@ class WP_Vault_Restore_Engine
      */
     private function decompress_file($source, $destination)
     {
+        // Check if source file exists and is readable
+        if (!file_exists($source) || !is_readable($source)) {
+            throw new \Exception('Database file not found or not readable: ' . $source);
+        }
+
+        // Check if it's actually a gzip file (check magic number 0x1f 0x8b)
+        $handle = fopen($source, 'rb');
+        if ($handle) {
+            $header = fread($handle, 2);
+            fclose($handle);
+
+            if (strlen($header) !== 2 || ord($header[0]) !== 0x1f || ord($header[1]) !== 0x8b) {
+                // Not a gzip file - might already be decompressed
+                if (copy($source, $destination)) {
+                    $this->log_php('[WP Vault] Database file is not gzipped, copied directly');
+                    return;
+                } else {
+                    throw new \Exception('Failed to copy database file (not gzipped)');
+                }
+            }
+        }
+
         $fp_in = gzopen($source, 'rb');
+        if (!$fp_in) {
+            // Try alternative decompression method
+            $this->log_php('[WP Vault] gzopen failed, trying alternative method...');
+            $content = file_get_contents('compress.zlib://' . $source);
+            if ($content === false) {
+                throw new \Exception('Failed to decompress database file');
+            }
+            file_put_contents($destination, $content);
+            $this->log_php('[WP Vault] Database file decompressed using alternative method');
+            return;
+        }
+
         // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary decompression requires direct file access
         $fp_out = fopen($destination, 'wb');
+        if (!$fp_out) {
+            gzclose($fp_in);
+            throw new \Exception('Failed to open destination file for writing: ' . $destination);
+        }
 
+        $bytes_written = 0;
         while (!gzeof($fp_in)) {
+            $data = gzread($fp_in, 8192);
+            if ($data === false) {
+                gzclose($fp_in);
+                fclose($fp_out);
+                throw new \Exception('Error reading from gzip file: ' . $source);
+            }
             // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Binary decompression requires direct file access
-            fwrite($fp_out, gzread($fp_in, 8192));
+            $written = fwrite($fp_out, $data);
+            if ($written === false) {
+                gzclose($fp_in);
+                fclose($fp_out);
+                throw new \Exception('Error writing decompressed data to: ' . $destination);
+            }
+            $bytes_written += $written;
         }
 
         gzclose($fp_in);
         // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary decompression requires direct file access
         fclose($fp_out);
+
+        // Validate decompressed file is text (SQL)
+        if ($bytes_written > 0) {
+            $this->validate_sql_file($destination);
+        }
+    }
+
+    /**
+     * Validate SQL file format
+     */
+    private function validate_sql_file($sql_file)
+    {
+        if (!file_exists($sql_file))
+            return;
+
+        $handle = fopen($sql_file, 'r');
+        if (!$handle)
+            return;
+
+        $sample = fread($handle, 1024);
+        fclose($handle);
+
+        // Check if it contains SQL keywords
+        $sql_keywords = array('CREATE', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TABLE');
+        $has_sql = false;
+        foreach ($sql_keywords as $keyword) {
+            if (stripos($sample, $keyword) !== false) {
+                $has_sql = true;
+                break;
+            }
+        }
+
+        // Check if it's mostly printable text (not binary)
+        $printable = 0;
+        $total = strlen($sample);
+        for ($i = 0; $i < $total; $i++) {
+            $char = ord($sample[$i]);
+            if (($char >= 32 && $char <= 126) || $char === 9 || $char === 10 || $char === 13) {
+                $printable++;
+            }
+        }
+        $printable_ratio = $total > 0 ? $printable / $total : 0;
+
+        if (!$has_sql || $printable_ratio < 0.8) {
+            $this->log_php('[WP Vault] WARNING: Decompressed file may not be valid SQL');
+            $this->log_php('[WP Vault] SQL keywords found: ' . ($has_sql ? 'yes' : 'no'));
+            $this->log_php('[WP Vault] Printable character ratio: ' . round($printable_ratio * 100, 2) . '%');
+        } else {
+            $this->log_php('[WP Vault] SQL validation passed (ratio: ' . round($printable_ratio * 100, 2) . '%)');
+        }
+    }
+
+    /**
+     * Detect if data is binary
+     */
+    private function is_binary_data($data)
+    {
+        if (empty($data)) {
+            return false;
+        }
+
+        $sample_size = min(512, strlen($data));
+        $sample = substr($data, 0, $sample_size);
+
+        // Count printable characters
+        $printable = 0;
+        for ($i = 0; $i < $sample_size; $i++) {
+            $char = ord($sample[$i]);
+            if (($char >= 32 && $char <= 126) || $char === 9 || $char === 10 || $char === 13) {
+                $printable++;
+            }
+        }
+
+        $ratio = $printable / $sample_size;
+
+        // If less than 70% printable, consider it binary
+        return $ratio < 0.7;
     }
 
     /**
@@ -1506,23 +1684,46 @@ class WP_Vault_Restore_Engine
             }
 
             // Update job status
-            $update_result = $wpdb->update(
-                $table,
-                array(
-                    'status' => $status,
-                    'progress_percent' => $percent,
-                    'updated_at' => current_time('mysql'),
-                ),
-                array('backup_id' => $this->restore_id),
-                array('%s', '%d', '%s'),
-                array('%s')
-            );
+            // If job doesn't exist, try to create it (shouldn't happen, but handle gracefully)
+            if (!$existing_job) {
+                $this->log_php('[WP Vault] WARNING: Job not found, attempting to create it...');
+                $insert_result = $wpdb->insert(
+                    $table,
+                    array(
+                        'backup_id' => $this->restore_id,
+                        'job_type' => 'restore',
+                        'status' => $status,
+                        'progress_percent' => $percent,
+                        'started_at' => current_time('mysql'),
+                        'updated_at' => current_time('mysql'),
+                    ),
+                    array('%s', '%s', '%s', '%d', '%s', '%s')
+                );
+                if ($insert_result === false) {
+                    $this->log_php('[WP Vault] ERROR: Failed to create restore job. Error: ' . $wpdb->last_error);
+                } else {
+                    $this->log_php('[WP Vault] Created restore job: ' . $this->restore_id);
+                }
+            } else {
+                // Normal update path
+                $update_result = $wpdb->update(
+                    $table,
+                    array(
+                        'status' => $status,
+                        'progress_percent' => $percent,
+                        'updated_at' => current_time('mysql'),
+                    ),
+                    array('backup_id' => $this->restore_id),
+                    array('%s', '%d', '%s'),
+                    array('%s')
+                );
 
-            // Log if update failed (for debugging)
-            if ($update_result === false && !empty($wpdb->last_error)) {
-                $this->log_php('[WP Vault] WARNING: Failed to update restore status in log_progress. Error: ' . $wpdb->last_error);
-            } else if ($status === 'completed' || $status === 'failed') {
-                $this->log_php('[WP Vault] log_progress: Updated restore status to: ' . $status . ' (rows affected: ' . ($update_result !== false ? $update_result : 0) . ', restore_id: ' . $this->restore_id . ')');
+                // Log if update failed (for debugging)
+                if ($update_result === false && !empty($wpdb->last_error)) {
+                    $this->log_php('[WP Vault] WARNING: Failed to update restore status in log_progress. Error: ' . $wpdb->last_error);
+                } else if ($status === 'completed' || $status === 'failed') {
+                    $this->log_php('[WP Vault] log_progress: Updated restore status to: ' . $status . ' (rows affected: ' . ($update_result !== false ? $update_result : 0) . ', restore_id: ' . $this->restore_id . ')');
+                }
             }
 
             // Log to file instead of database

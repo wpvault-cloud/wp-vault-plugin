@@ -123,15 +123,46 @@ class WP_Vault_API
     }
 
     /**
-     * Send heartbeat to SaaS
+     * Check connection status with SaaS
+     * Similar to test_connection but with caching and status tracking
+     * 
+     * @param bool $force Force check even if recently checked
+     * @return array Connection status result
      */
-    public function send_heartbeat()
+    public function check_connection($force = false)
     {
         if (!$this->site_id || !$this->site_token) {
-            return;
+            return array(
+                'success' => false,
+                'connected' => false,
+                'error' => 'Site not registered. Please register your site first.',
+            );
         }
 
-        wp_remote_post($this->api_endpoint . "/api/v1/sites/{$this->site_id}/heartbeat", array(
+        // Check if we should use cached status (unless forced)
+        if (!$force) {
+            $last_check = get_option('wpv_last_connection_check_at');
+            $cached_status = get_option('wpv_connection_status');
+
+            if ($last_check && $cached_status !== false) {
+                $last_check_time = strtotime($last_check);
+                $five_minutes_ago = time() - (5 * 60);
+
+                // Return cached status if checked within last 5 minutes
+                if ($last_check_time > $five_minutes_ago) {
+                    return array(
+                        'success' => true,
+                        'connected' => $cached_status === 'connected',
+                        'cached' => true,
+                        'last_check' => $last_check,
+                        'status' => $cached_status,
+                    );
+                }
+            }
+        }
+
+        // Perform actual connection check by sending heartbeat
+        $response = wp_remote_post($this->api_endpoint . "/api/v1/sites/{$this->site_id}/heartbeat", array(
             'headers' => array('Content-Type' => 'application/json'),
             'body' => json_encode(array(
                 'site_token' => $this->site_token,
@@ -142,6 +173,96 @@ class WP_Vault_API
             )),
             'timeout' => 10,
         ));
+
+        $is_connected = false;
+        $error_message = null;
+
+        if (is_wp_error($response)) {
+            $error_message = $response->get_error_message();
+        } else {
+            $status_code = wp_remote_retrieve_response_code($response);
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+
+            if ($status_code === 200 && isset($body['status']) && $body['status'] === 'ok') {
+                $is_connected = true;
+                // Update heartbeat timestamp on success
+                update_option('wpv_last_heartbeat_at', current_time('mysql'));
+            } else {
+                $error_message = isset($body['error']) ? $body['error'] : 'Connection test failed (HTTP ' . $status_code . ')';
+            }
+        }
+
+        // Cache the connection status
+        $status = $is_connected ? 'connected' : 'disconnected';
+        update_option('wpv_connection_status', $status);
+        update_option('wpv_last_connection_check_at', current_time('mysql'));
+
+        return array(
+            'success' => true,
+            'connected' => $is_connected,
+            'status' => $status,
+            'last_check' => current_time('mysql'),
+            'error' => $error_message,
+        );
+    }
+
+    /**
+     * Send heartbeat to SaaS
+     */
+    public function send_heartbeat()
+    {
+        if (!$this->site_id || !$this->site_token) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[WP Vault] Cannot send heartbeat: site_id or site_token missing');
+                error_log('[WP Vault] site_id: ' . ($this->site_id ?: 'NOT SET'));
+                error_log('[WP Vault] site_token: ' . ($this->site_token ? 'SET' : 'NOT SET'));
+            }
+            return;
+        }
+
+        $heartbeat_url = $this->api_endpoint . "/api/v1/sites/{$this->site_id}/heartbeat";
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[WP Vault] Sending heartbeat to: ' . $heartbeat_url);
+        }
+
+        $response = wp_remote_post($heartbeat_url, array(
+            'headers' => array('Content-Type' => 'application/json'),
+            'body' => json_encode(array(
+                'site_token' => $this->site_token,
+                'wp_version' => get_bloginfo('version'),
+                'php_version' => phpversion(),
+                'plugin_version' => WP_VAULT_VERSION,
+                'disk_free_gb' => $this->get_disk_free_space(),
+            )),
+            'timeout' => 10,
+        ));
+
+        // Update local heartbeat timestamp on success
+        if (is_wp_error($response)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[WP Vault] Heartbeat send failed: ' . $response->get_error_message());
+            }
+        } else {
+            $status_code = wp_remote_retrieve_response_code($response);
+            $body = wp_remote_retrieve_body($response);
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[WP Vault] Heartbeat response status: ' . $status_code);
+                error_log('[WP Vault] Heartbeat response body: ' . $body);
+            }
+
+            if ($status_code === 200) {
+                update_option('wpv_last_heartbeat_at', current_time('mysql'));
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('[WP Vault] Heartbeat sent successfully, timestamp updated');
+                }
+            } else {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('[WP Vault] Heartbeat failed with status: ' . $status_code);
+                }
+            }
+        }
     }
 
     /**
@@ -224,6 +345,44 @@ class WP_Vault_API
         return array(
             'success' => false,
             'error' => 'Failed to retrieve backups',
+        );
+    }
+
+    /**
+     * Get download URLs for backup files from remote storage
+     */
+    public function get_backup_download_urls($backup_id)
+    {
+        if (!$this->site_id || !$this->site_token) {
+            return array(
+                'success' => false,
+                'error' => 'Site not registered',
+            );
+        }
+
+        $url = $this->api_endpoint . "/api/v1/backups/{$backup_id}/download-urls?site_token=" . urlencode($this->site_token);
+
+        $response = wp_remote_get($url, array('timeout' => 30));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'error' => $response->get_error_message(),
+            );
+        }
+
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if (isset($body['download_urls'])) {
+            return array(
+                'success' => true,
+                'data' => $body,
+            );
+        }
+
+        return array(
+            'success' => false,
+            'error' => isset($body['error']) ? $body['error'] : 'Failed to get download URLs',
         );
     }
 

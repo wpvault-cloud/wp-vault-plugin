@@ -23,6 +23,18 @@ function wpvault_display_connection_status() {
     $site_id = get_option('wpv_site_id');
     $api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
     $last_heartbeat = get_option('wpv_last_heartbeat_at');
+    
+    // Get cached connection status
+    $connection_status = get_option('wpv_connection_status', 'unknown');
+    $last_connection_check = get_option('wpv_last_connection_check_at');
+    
+    // If no cached status, check on page load (but don't force)
+    if ($connection_status === 'unknown' && $registered) {
+        $check_result = $api->check_connection(false); // Don't force, use cache if available
+        $connection_status = isset($check_result['status']) ? $check_result['status'] : 'unknown';
+    }
+    
+    $is_connected = $connection_status === 'connected';
 
     // Get storage config to show usage
     $storage_data = null;
@@ -48,9 +60,12 @@ function wpvault_display_connection_status() {
     </div>
     <div class="wpv-card-content">
         <?php if ($registered): ?>
-            <div class="wpv-status-indicator wpv-status-connected">
+            <div class="wpv-status-indicator <?php echo $is_connected ? 'wpv-status-connected' : 'wpv-status-disconnected'; ?>" id="wpv-connection-status-indicator">
                 <span class="wpv-status-dot"></span>
-                <span><?php esc_html_e('Connected', 'wp-vault'); ?></span>
+                <span id="wpv-connection-status-text"><?php echo $is_connected ? esc_html__('Connected', 'wp-vault') : esc_html__('Disconnected', 'wp-vault'); ?></span>
+                <button type="button" id="wpv-recheck-connection" class="button button-small" style="margin-left: 10px; padding: 2px 8px; font-size: 11px; height: auto; line-height: 1.5;" title="<?php esc_attr_e('Recheck connection', 'wp-vault'); ?>">
+                    <span class="dashicons dashicons-update" style="font-size: 14px; width: 14px; height: 14px; line-height: 1.2;"></span>
+                </button>
             </div>
 
             <div class="wpv-info-row">
@@ -62,7 +77,15 @@ function wpvault_display_connection_status() {
                 <div class="wpv-info-row">
                     <span class="wpv-info-label"><?php esc_html_e('Last Sync:', 'wp-vault'); ?></span>
                     <span
-                        class="wpv-info-value"><?php echo esc_html(human_time_diff(strtotime($last_heartbeat), current_time('timestamp'))) . ' ago'; ?></span>
+                        class="wpv-info-value" id="wpv-last-sync"><?php echo esc_html(human_time_diff(strtotime($last_heartbeat), current_time('timestamp'))) . ' ago'; ?></span>
+                </div>
+            <?php endif; ?>
+            
+            <?php if ($last_connection_check): ?>
+                <div class="wpv-info-row">
+                    <span class="wpv-info-label"><?php esc_html_e('Last Check:', 'wp-vault'); ?></span>
+                    <span
+                        class="wpv-info-value" id="wpv-last-check"><?php echo esc_html(human_time_diff(strtotime($last_connection_check), current_time('timestamp'))) . ' ago'; ?></span>
                 </div>
             <?php endif; ?>
 
