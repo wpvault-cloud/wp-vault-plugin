@@ -128,11 +128,13 @@ class WP_Vault
         WP_Vault_REST_API::register_routes();
 
         // Debug: Log route registration (only in debug mode)
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
             $hook = current_filter();
-            error_log("WP Vault: REST API routes registered via hook: {$hook}");
-            error_log("WP Vault: REST API base URL: " . rest_url('wp-vault/v1/'));
+            // error_log("WP Vault: REST API routes registered via hook: {$hook}");
+            // error_log("WP Vault: REST API base URL: " . rest_url('wp-vault/v1/'));
         }
+        */
     }
 
     /**
@@ -559,7 +561,8 @@ class WP_Vault
      */
     public function redirect_old_pages()
     {
-        $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+
 
         // Remove restores redirect since we removed that menu item
         // Backups page will render dashboard with backups tab automatically
@@ -571,7 +574,7 @@ class WP_Vault
      */
     public function redirect_to_dashboard_tab()
     {
-        $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : '';
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
         $tab = 'backups';
 
         if ($page === 'wp-vault-backups') {
@@ -896,21 +899,23 @@ class WP_Vault
 
         if (!$site_id || !$site_token) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Cannot poll pending jobs: site not registered');
+                // error_log('[WP Vault] Cannot poll pending jobs: site not registered');
             }
             return;
         }
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Polling for pending jobs...');
+            // error_log('[WP Vault] Polling for pending jobs...');
         }
+        */
 
         // Poll SaaS for pending jobs
         $pending_jobs = $api->get_pending_jobs($site_id, $site_token);
 
         if (!$pending_jobs || !isset($pending_jobs['success']) || !$pending_jobs['success']) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] No pending jobs or error fetching: ' . (isset($pending_jobs['error']) ? $pending_jobs['error'] : 'unknown'));
+                // error_log('[WP Vault] No pending jobs or error fetching: ' . (isset($pending_jobs['error']) ? $pending_jobs['error'] : 'unknown'));
             }
             return;
         }
@@ -919,14 +924,16 @@ class WP_Vault
 
         if (empty($jobs)) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] No pending jobs found');
+                // error_log('[WP Vault] No pending jobs found');
             }
             return;
         }
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Found ' . count($jobs) . ' pending job(s)');
+            // error_log('[WP Vault] Found ' . count($jobs) . ' pending job(s)');
         }
+        */
 
         // Process each pending job
         foreach ($jobs as $job) {
@@ -942,20 +949,23 @@ class WP_Vault
 
             if (!$claimed || !isset($claimed['success']) || !$claimed['success']) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Failed to claim job ' . $backup_id . ': ' . (isset($claimed['error']) ? $claimed['error'] : 'already claimed'));
+                    // error_log('[WP Vault] Failed to claim job ' . $backup_id . ': ' . (isset($claimed['error']) ? $claimed['error'] : 'already claimed'));
                 }
                 continue;
             }
 
+            /*
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Claimed pending job: ' . $backup_id . ' (type: ' . $backup_type . ')');
+                // error_log('[WP Vault] Claimed pending job: ' . $backup_id . ' (type: ' . $backup_type . ')');
             }
+            */
 
             // Create local job record
             global $wpdb;
             $table = $wpdb->prefix . 'wp_vault_jobs';
 
             // Check if job already exists locally
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe ($wpdb->prefix . 'wp_vault_jobs')
             $existing = $wpdb->get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM $table WHERE backup_id = %s",
                 $backup_id
@@ -967,6 +977,7 @@ class WP_Vault
 
             // DUPLICATE PREVENTION: Check if backup already exists and is running/completed
             if ($existing) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe
                 $existing_job = $wpdb->get_row($wpdb->prepare(
                     "SELECT status, schedule_id, trigger_source FROM $table WHERE backup_id = %s",
                     $backup_id
@@ -974,13 +985,14 @@ class WP_Vault
 
                 if ($existing_job && in_array($existing_job->status, array('running', 'completed'))) {
                     if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('[WP Vault] Backup ' . $backup_id . ' already exists with status: ' . $existing_job->status . ', skipping duplicate');
+                        // error_log('[WP Vault] Backup ' . $backup_id . ' already exists with status: ' . $existing_job->status . ', skipping duplicate');
                     }
                     continue; // Skip this job - it's already being processed or completed
                 }
             }
 
             if (!$existing) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Insert safe
                 $wpdb->insert(
                     $table,
                     array(
@@ -996,6 +1008,7 @@ class WP_Vault
                 );
             } else {
                 // Update local job status to 'running' and metadata
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Update safe
                 $wpdb->update(
                     $table,
                     array(
@@ -1064,12 +1077,12 @@ class WP_Vault
         }
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Found ' . count($pending_jobs) . ' local pending job(s) to execute');
+            // error_log('[WP Vault] Found ' . count($pending_jobs) . ' local pending job(s) to execute');
         }
 
         foreach ($pending_jobs as $job) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Executing pending local job: ' . $job->backup_id);
+                // error_log('[WP Vault] Executing pending local job: ' . $job->backup_id);
             }
 
             // Update status to running
@@ -1097,16 +1110,20 @@ class WP_Vault
         // Hosts with restrictions will enforce their own limits
 
         // Debug logging (only in debug mode)
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] execute_backup called - Backup ID: ' . $backup_id . ', Type: ' . $backup_type);
-            error_log('[WP Vault] Backup type check: ' . ($backup_type === 'incremental' ? 'INCREMENTAL FLOW' : 'STANDARD FLOW'));
+            // error_log('[WP Vault] execute_backup called - Backup ID: ' . $backup_id . ', Type: ' . $backup_type);
+            // error_log('[WP Vault] Backup type check: ' . ($backup_type === 'incremental' ? 'INCREMENTAL FLOW' : 'STANDARD FLOW'));
         }
+        */
 
         // Handle incremental backups differently
         if ($backup_type === 'incremental') {
+            /*
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Using incremental backup flow');
+                // error_log('[WP Vault] Using incremental backup flow');
             }
+            */
             require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-file-scanner.php';
             require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-fingerprinter.php';
             require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-hasher.php';
@@ -1338,10 +1355,12 @@ class WP_Vault
 
                 $log->close_file();
             } catch (\Exception $e) {
+                /*
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Incremental backup exception: ' . $e->getMessage());
-                    error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
+                    // error_log('[WP Vault] Incremental backup exception: ' . $e->getMessage());
+                    // error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
                 }
+                */
 
                 // Update job status to failed
                 global $wpdb;
@@ -1383,15 +1402,15 @@ class WP_Vault
                 // Update SaaS with result
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     if ($result['success']) {
-                        error_log('[WP Vault] Backup completed: ' . $backup_id);
+                        // error_log('[WP Vault] Backup completed: ' . $backup_id);
                     } else {
-                        error_log('[WP Vault] Backup failed: ' . $result['error']);
+                        // error_log('[WP Vault] Backup failed: ' . $result['error']);
                     }
                 }
             } catch (\Exception $e) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Backup exception: ' . $e->getMessage());
-                    error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
+                    // error_log('[WP Vault] Backup exception: ' . $e->getMessage());
+                    // error_log('[WP Vault] Exception trace: ' . $e->getTraceAsString());
                 }
             }
         }
@@ -1522,13 +1541,20 @@ class WP_Vault
 
         // Get components and restore options
         $components = isset($_POST['components']) && is_array($_POST['components'])
-            ? array_map('sanitize_text_field', $_POST['components'])
+            ? array_map('sanitize_text_field', wp_unslash($_POST['components']))
             : array('files', 'database');
 
         $restore_options = array();
         if (isset($_POST['restore_options']) && is_array($_POST['restore_options'])) {
-            foreach ($_POST['restore_options'] as $key => $value) {
-                $restore_options[sanitize_text_field($key)] = (bool) $value;
+            // Unslash all options first
+            $unslashed_options = wp_unslash($_POST['restore_options']);
+            foreach ($unslashed_options as $key => $value) {
+                // Handle different value types appropriately
+                if (is_array($value)) {
+                    $restore_options[sanitize_text_field($key)] = array_map('sanitize_text_field', $value);
+                } else {
+                    $restore_options[sanitize_text_field($key)] = (bool) $value;
+                }
             }
         }
 
@@ -1540,9 +1566,11 @@ class WP_Vault
         $restore_id = 'restore-' . uniqid();
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] ajax_restore_backup - Starting restore for backup: ' . $backup_id . ', restore_id: ' . $restore_id . ', mode: ' . $restore_mode);
+            // error_log('[WP Vault] ajax_restore_backup - Starting restore for backup: ' . $backup_id . ', restore_id: ' . $restore_id . ', mode: ' . $restore_mode);
         }
+        */
 
         $restore_options['backup_id'] = $backup_id; // Store original backup_id for manifest lookup
 
@@ -1601,9 +1629,11 @@ class WP_Vault
         spawn_cron();
         do_action('wpvault_execute_restore', $restore_id, $backup_path, $restore_options);
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] ajax_restore_backup - Restore job scheduled: ' . $restore_id);
+            // error_log('[WP Vault] ajax_restore_backup - Restore job scheduled: ' . $restore_id);
         }
+        */
 
         wp_send_json_success(array(
             'restore_id' => $restore_id,
@@ -1633,9 +1663,12 @@ class WP_Vault
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
         // Debug: Log the query we're about to run
+        // Debug: Log the query we're about to run
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] AJAX Status Check - Querying for restore_id: ' . $restore_id);
+            // error_log('[WP Vault] AJAX Status Check - Querying for restore_id: ' . $restore_id);
         }
+        */
 
         // Check if log_file_path column exists before querying
         $table_escaped = esc_sql($table);
@@ -1647,21 +1680,25 @@ class WP_Vault
 
         if (!$job) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] AJAX Status Check - Job not found! Searching for restore_id: ' . $restore_id);
+                // error_log('[WP Vault] AJAX Status Check - Job not found! Searching for restore_id: ' . $restore_id);
                 // Try to find any restore jobs
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter -- Debug query
                 $all_restores = $wpdb->get_results($wpdb->prepare("SELECT backup_id, status FROM $table WHERE job_type = %s ORDER BY started_at DESC LIMIT 5", 'restore'));
-                error_log('[WP Vault] AJAX Status Check - Found ' . count($all_restores) . ' restore jobs in database');
+                // error_log('[WP Vault] AJAX Status Check - Found ' . count($all_restores) . ' restore jobs in database');
                 foreach ($all_restores as $restore_job) {
-                    error_log('[WP Vault] AJAX Status Check -   - ' . $restore_job->backup_id . ' (status: ' . $restore_job->status . ')');
+                    // error_log('[WP Vault] AJAX Status Check -   - ' . $restore_job->backup_id . ' (status: ' . $restore_job->status . ')');
                 }
             }
             wp_send_json_error(array('message' => 'Restore job not found'));
         }
 
         // Debug logging
+        // Debug logging
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] AJAX Status Check - Found job! Restore ID: ' . $restore_id . ', Status: ' . $job->status . ', Progress: ' . $job->progress_percent);
+            // error_log('[WP Vault] AJAX Status Check - Found job! Restore ID: ' . $restore_id . ', Status: ' . $job->status . ', Progress: ' . $job->progress_percent);
         }
+        */
 
         // Read logs from file if available
         $logs = array();
@@ -1702,9 +1739,11 @@ class WP_Vault
             }, $db_logs) : array();
         }
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] ajax_get_restore_status - Returning success for ' . $restore_id . ' (Status: ' . $job->status . ', Progress: ' . $job->progress_percent . '%)');
+            // error_log('[WP Vault] ajax_get_restore_status - Returning success for ' . $restore_id . ' (Status: ' . $job->status . ', Progress: ' . $job->progress_percent . '%)');
         }
+        */
 
         wp_send_json_success(array(
             'status' => $job->status,
@@ -1727,7 +1766,7 @@ class WP_Vault
         }
 
         $backup_id = isset($_POST['backup_id']) ? sanitize_text_field(wp_unslash($_POST['backup_id'])) : '';
-        $backup_file = isset($_POST['backup_file']) ? sanitize_text_field($_POST['backup_file']) : '';
+        $backup_file = isset($_POST['backup_file']) ? sanitize_text_field(wp_unslash($_POST['backup_file'])) : '';
 
         $backup_dir = WP_CONTENT_DIR . '/wp-vault-backups/';
         $deleted_count = 0;
@@ -2692,14 +2731,14 @@ class WP_Vault
         if (defined('WP_DEBUG') && WP_DEBUG) {
             $existing_job = $wpdb->get_row($wpdb->prepare("SELECT backup_id, status, job_type FROM $table WHERE backup_id = %s", $restore_id));
             if ($existing_job) {
-                error_log('[WP Vault] execute_restore: Found job with backup_id: ' . $existing_job->backup_id . ', current status: ' . $existing_job->status . ', job_type: ' . $existing_job->job_type);
+                // error_log('[WP Vault] execute_restore: Found job with backup_id: ' . $existing_job->backup_id . ', current status: ' . $existing_job->status . ', job_type: ' . $existing_job->job_type);
             } else {
-                error_log('[WP Vault] execute_restore: WARNING - Job not found with backup_id: ' . $restore_id);
+                // error_log('[WP Vault] execute_restore: WARNING - Job not found with backup_id: ' . $restore_id);
                 // Try to find any restore jobs
                 $all_restores = $wpdb->get_results($wpdb->prepare("SELECT backup_id, status FROM $table WHERE job_type = %s ORDER BY started_at DESC LIMIT 5", 'restore'));
-                error_log('[WP Vault] execute_restore: Found ' . count($all_restores) . ' restore jobs in database');
+                // error_log('[WP Vault] execute_restore: Found ' . count($all_restores) . ' restore jobs in database');
                 foreach ($all_restores as $job) {
-                    error_log('[WP Vault] execute_restore:   - ' . $job->backup_id . ' (status: ' . $job->status . ')');
+                    // error_log('[WP Vault] execute_restore:   - ' . $job->backup_id . ' (status: ' . $job->status . ')');
                 }
             }
         }
@@ -2765,23 +2804,23 @@ class WP_Vault
         // Verify the update worked
         if (defined('WP_DEBUG') && WP_DEBUG) {
             if ($update_result === false) {
-                error_log('[WP Vault] ERROR: Failed to update restore status in database. Last error: ' . $wpdb->last_error);
+                // error_log('[WP Vault] ERROR: Failed to update restore status in database. Last error: ' . $wpdb->last_error);
             } else {
-                error_log('[WP Vault] execute_restore: Updated restore status to: ' . $final_status . ' (rows affected: ' . $update_result . ', restore_id: ' . $restore_id . ')');
+                // error_log('[WP Vault] execute_restore: Updated restore status to: ' . $final_status . ' (rows affected: ' . $update_result . ', restore_id: ' . $restore_id . ')');
             }
 
             // Double-check the status was actually saved
             $verify_job = $wpdb->get_row($wpdb->prepare("SELECT status, progress_percent FROM $table WHERE backup_id = %s", $restore_id));
             if ($verify_job) {
-                error_log('[WP Vault] Verified status in database: ' . $verify_job->status . ' (progress: ' . $verify_job->progress_percent . '%)');
+                // error_log('[WP Vault] Verified status in database: ' . $verify_job->status . ' (progress: ' . $verify_job->progress_percent . '%)');
             } else {
-                error_log('[WP Vault] WARNING: Could not verify restore job status after update (restore_id: ' . $restore_id . ')');
+                // error_log('[WP Vault] WARNING: Could not verify restore job status after update (restore_id: ' . $restore_id . ')');
             }
 
             if ($result['success']) {
-                error_log('[WP Vault] Restore completed: ' . $restore_id);
+                // error_log('[WP Vault] Restore completed: ' . $restore_id);
             } else {
-                error_log('[WP Vault] Restore failed: ' . $result['error']);
+                // error_log('[WP Vault] Restore failed: ' . $result['error']);
             }
         }
     }
@@ -3147,7 +3186,7 @@ class WP_Vault
 
         // Debug logging
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] ajax_get_download_status: Checking log file: ' . $log_file);
+            // error_log('[WP Vault] ajax_get_download_status: Checking log file: ' . $log_file);
         }
 
         if (!file_exists($log_file)) {
@@ -3166,7 +3205,7 @@ class WP_Vault
         $log_content = $log_result['content'] ?? '';
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] ajax_get_download_status: Read ' . strlen($log_content) . ' bytes from log');
+            // error_log('[WP Vault] ajax_get_download_status: Read ' . strlen($log_content) . ' bytes from log');
         }
 
         // Parse log lines into structured format
@@ -3274,7 +3313,7 @@ class WP_Vault
         }
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] ajax_get_download_status: Progress: ' . $progress . '%, Message: ' . $message);
+            // error_log('[WP Vault] ajax_get_download_status: Progress: ' . $progress . '%, Message: ' . $message);
         }
 
         wp_send_json_success(array(

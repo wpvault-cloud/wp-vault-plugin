@@ -85,10 +85,12 @@ class WP_Vault_Restore_Engine
             // Check if log_file_path column exists, if not add it
             $column_exists = $wpdb->get_results("SHOW COLUMNS FROM $table LIKE 'log_file_path'");
             if (empty($column_exists)) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
                 $wpdb->query("ALTER TABLE $table ADD COLUMN log_file_path varchar(255) DEFAULT NULL AFTER error_message");
             }
 
             // Update log file path (best effort - don't fail if it doesn't work)
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
             $wpdb->update(
                 $table,
                 array('log_file_path' => $log_file_path),
@@ -717,6 +719,7 @@ class WP_Vault_Restore_Engine
             // Force drop them
             foreach ($remaining_temp_tables as $table) {
                 $table_clean = str_replace('`', '', $table);
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.SchemaChange,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is from SHOW TABLES, safe
                 $wpdb->query("DROP TABLE IF EXISTS `{$table_clean}`");
                 $this->log_php('[WP Vault] Force dropped remaining temp table: ' . $table_clean);
             }
@@ -730,6 +733,7 @@ class WP_Vault_Restore_Engine
             global $wpdb;
             $table = $wpdb->prefix . 'wp_vault_jobs';
             $table_escaped = esc_sql($table);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe, escaped
             $job = $wpdb->get_row($wpdb->prepare(
                 "SELECT current_offset FROM {$table_escaped} WHERE backup_id = %s",
                 $this->restore_id
@@ -755,7 +759,9 @@ class WP_Vault_Restore_Engine
         $temp_tables = array();
 
         // Set permissive SQL mode for restore
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
         $wpdb->query("SET SESSION sql_mode = 'ALLOW_INVALID_DATES,NO_AUTO_VALUE_ON_ZERO'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
         $wpdb->query("SET FOREIGN_KEY_CHECKS=0");
 
         try {

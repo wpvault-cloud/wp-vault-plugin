@@ -213,9 +213,9 @@ class WP_Vault_API
     {
         if (!$this->site_id || !$this->site_token) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Cannot send heartbeat: site_id or site_token missing');
-                error_log('[WP Vault] site_id: ' . ($this->site_id ?: 'NOT SET'));
-                error_log('[WP Vault] site_token: ' . ($this->site_token ? 'SET' : 'NOT SET'));
+                // error_log('[WP Vault] Cannot send heartbeat: site_id or site_token missing');
+                // error_log('[WP Vault] site_id: ' . ($this->site_id ?: 'NOT SET'));
+                // error_log('[WP Vault] site_token: ' . ($this->site_token ? 'SET' : 'NOT SET'));
             }
             return;
         }
@@ -223,7 +223,7 @@ class WP_Vault_API
         $heartbeat_url = $this->api_endpoint . "/api/v1/sites/{$this->site_id}/heartbeat";
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Sending heartbeat to: ' . $heartbeat_url);
+            // error_log('[WP Vault] Sending heartbeat to: ' . $heartbeat_url);
         }
 
         $response = wp_remote_post($heartbeat_url, array(
@@ -241,25 +241,25 @@ class WP_Vault_API
         // Update local heartbeat timestamp on success
         if (is_wp_error($response)) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Heartbeat send failed: ' . $response->get_error_message());
+                // error_log('[WP Vault] Heartbeat send failed: ' . $response->get_error_message());
             }
         } else {
             $status_code = wp_remote_retrieve_response_code($response);
             $body = wp_remote_retrieve_body($response);
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Heartbeat response status: ' . $status_code);
-                error_log('[WP Vault] Heartbeat response body: ' . $body);
+                // error_log('[WP Vault] Heartbeat response status: ' . $status_code);
+                // error_log('[WP Vault] Heartbeat response body: ' . $body);
             }
 
             if ($status_code === 200) {
                 update_option('wpv_last_heartbeat_at', current_time('mysql'));
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Heartbeat sent successfully, timestamp updated');
+                    // error_log('[WP Vault] Heartbeat sent successfully, timestamp updated');
                 }
             } else {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Heartbeat failed with status: ' . $status_code);
+                    // error_log('[WP Vault] Heartbeat failed with status: ' . $status_code);
                 }
             }
         }
@@ -413,7 +413,7 @@ class WP_Vault_API
 
         if (is_wp_error($response)) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault] Failed to send log: ' . $response->get_error_message());
+                // error_log('[WP Vault] Failed to send log: ' . $response->get_error_message());
             }
         }
     }
@@ -483,7 +483,7 @@ class WP_Vault_API
         if (is_wp_error($response)) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Update job API error: ' . $response->get_error_message() . ' URL: ' . $url);
+                    // error_log('[WP Vault] Update job API error: ' . $response->get_error_message() . ' URL: ' . $url);
                 }
             }
             return array('success' => false, 'error' => $response->get_error_message());
@@ -508,7 +508,7 @@ class WP_Vault_API
             if (is_wp_error($response)) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log('[WP Vault] Update job API error (PATCH fallback): ' . $response->get_error_message() . ' URL: ' . $url);
+                        // error_log('[WP Vault] Update job API error (PATCH fallback): ' . $response->get_error_message() . ' URL: ' . $url);
                     }
                 }
                 return array('success' => false, 'error' => $response->get_error_message());
@@ -521,7 +521,7 @@ class WP_Vault_API
         if ($status_code !== 200) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('[WP Vault] Update job API failed: HTTP ' . $status_code . ' - ' . wp_remote_retrieve_body($response) . ' URL: ' . $url);
+                    // error_log('[WP Vault] Update job API failed: HTTP ' . $status_code . ' - ' . wp_remote_retrieve_body($response) . ' URL: ' . $url);
                 }
             }
             return array('success' => false, 'error' => 'HTTP ' . $status_code . ': ' . ($response_body['error'] ?? 'Unknown error'));

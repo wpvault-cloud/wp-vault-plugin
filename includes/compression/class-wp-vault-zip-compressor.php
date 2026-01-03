@@ -172,7 +172,7 @@ class WP_Vault_Zip_Compressor
             call_user_func($this->log_callback, $message);
         } else {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault ZIP Compressor] ' . $message);
+                // error_log('[WP Vault ZIP Compressor] ' . $message);
             }
         }
     }

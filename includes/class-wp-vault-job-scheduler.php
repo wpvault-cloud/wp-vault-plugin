@@ -35,6 +35,7 @@ class WP_Vault_Job_Scheduler
         $processed = 0;
 
         // Load job and cursor
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe ($wpdb->prefix . 'wp_vault_jobs')
         $job = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $table WHERE backup_id = %s",
             $job_id
@@ -59,6 +60,7 @@ class WP_Vault_Job_Scheduler
 
             if (isset($result['error'])) {
                 // Error occurred
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
                 $wpdb->update(
                     $table,
                     [
@@ -79,6 +81,7 @@ class WP_Vault_Job_Scheduler
             $processed++;
 
             // Update cursor in database after each item (for crash safety)
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
             $wpdb->update(
                 $table,
                 [
@@ -94,6 +97,7 @@ class WP_Vault_Job_Scheduler
 
         if ($is_complete) {
             // Mark job as completed
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
             $wpdb->update(
                 $table,
                 [
@@ -105,6 +109,7 @@ class WP_Vault_Job_Scheduler
             );
         } else {
             // Update status to running (resumable)
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
             $wpdb->update(
                 $table,
                 [
@@ -149,6 +154,7 @@ class WP_Vault_Job_Scheduler
             $data['phase'] = $phase;
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Insert safe
         return $wpdb->insert($table, $data) !== false;
     }
 
@@ -164,6 +170,7 @@ class WP_Vault_Job_Scheduler
         global $wpdb;
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
         return $wpdb->update(
             $table,
             [
@@ -185,6 +192,7 @@ class WP_Vault_Job_Scheduler
         global $wpdb;
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe
         $cursor_json = $wpdb->get_var($wpdb->prepare(
             "SELECT `cursor` FROM $table WHERE backup_id = %s",
             $job_id
@@ -205,6 +213,7 @@ class WP_Vault_Job_Scheduler
         global $wpdb;
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
         return $wpdb->update(
             $table,
             [
@@ -226,6 +235,7 @@ class WP_Vault_Job_Scheduler
         global $wpdb;
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
         return $wpdb->update(
             $table,
             [

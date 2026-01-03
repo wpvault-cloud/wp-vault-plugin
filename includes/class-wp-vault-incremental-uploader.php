@@ -267,6 +267,7 @@ class WP_Vault_Incremental_Uploader
 
             // Get table structure
             $table_escaped = esc_sql($table);
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe, escaped
             $create_table = $wpdb->get_row($wpdb->prepare("SHOW CREATE TABLE `%s`", $table_escaped), ARRAY_N);
             if ($create_table) {
                 $sql .= "\n\n-- Table structure for `{$table}`\n";
@@ -275,6 +276,7 @@ class WP_Vault_Incremental_Uploader
             }
 
             // Get table data
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe, escaped
             $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM `%s`", $table_escaped), ARRAY_A);
             if (!empty($rows)) {
                 $sql .= "-- Data for table `{$table}`\n";

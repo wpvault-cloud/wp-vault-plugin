@@ -61,6 +61,7 @@ class WP_Vault_URL_Replacer
         global $wpdb;
 
         // Get all rows
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is passed from list
         $rows = $wpdb->get_results("SELECT * FROM `{$table}`", ARRAY_A);
 
         if (empty($rows)) {
@@ -94,6 +95,7 @@ class WP_Vault_URL_Replacer
 
             // Update row if changed
             if ($updated && !empty($update_where)) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
                 $wpdb->update($table, $update_data, $update_where);
                 $replaced++;
             }
@@ -211,7 +213,9 @@ class WP_Vault_URL_Replacer
         global $wpdb;
 
         // Get site_url and home_url from options
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Reading raw options
         $site_url = $wpdb->get_var("SELECT option_value FROM {$wpdb->prefix}options WHERE option_name = 'site_url'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Reading raw options
         $home_url = $wpdb->get_var("SELECT option_value FROM {$wpdb->prefix}options WHERE option_name = 'home'");
 
         return array(

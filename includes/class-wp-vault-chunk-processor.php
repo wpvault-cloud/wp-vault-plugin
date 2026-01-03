@@ -191,6 +191,7 @@ class WP_Vault_Chunk_Processor
             $update_data['current_step'] = 'processing_files';
         }
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Update safe
         $wpdb->update(
             $table,
             $update_data,
@@ -208,6 +209,7 @@ class WP_Vault_Chunk_Processor
         global $wpdb;
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe
         $job = $wpdb->get_row($wpdb->prepare(
             "SELECT status FROM $table WHERE backup_id = %s",
             $this->job_id

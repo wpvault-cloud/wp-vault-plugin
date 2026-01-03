@@ -32,19 +32,21 @@ class WP_Vault_REST_API
         ));
 
         // Debug: Log if registration failed
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
             if ($result === false) {
-                error_log('WP Vault: Failed to register REST API route /backup/trigger');
+                // error_log('WP Vault: Failed to register REST API route /backup/trigger');
             } else {
-                error_log('WP Vault: REST API route /backup/trigger registered successfully');
+                // error_log('WP Vault: REST API route /backup/trigger registered successfully');
             }
 
             if ($heartbeat_result === false) {
-                error_log('WP Vault: Failed to register REST API route /heartbeat/trigger');
+                // error_log('WP Vault: Failed to register REST API route /heartbeat/trigger');
             } else {
-                error_log('WP Vault: REST API route /heartbeat/trigger registered successfully');
+                // error_log('WP Vault: REST API route /heartbeat/trigger registered successfully');
             }
         }
+        */
     }
 
     /**
@@ -53,16 +55,18 @@ class WP_Vault_REST_API
      */
     public static function check_permission($request)
     {
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault REST API] Permission check called for route: ' . $request->get_route());
+            // error_log('[WP Vault REST API] Permission check called for route: ' . $request->get_route());
         }
+        */
 
         // Get Authorization header
         $auth_header = $request->get_header('Authorization');
 
         if (!$auth_header) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault REST API] Missing Authorization header');
+                // error_log('[WP Vault REST API] Missing Authorization header');
             }
             return new \WP_Error(
                 'missing_auth',
@@ -76,7 +80,7 @@ class WP_Vault_REST_API
             $token = $matches[1];
         } else {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault REST API] Invalid authorization format');
+                // error_log('[WP Vault REST API] Invalid authorization format');
             }
             return new \WP_Error(
                 'invalid_auth',
@@ -90,7 +94,7 @@ class WP_Vault_REST_API
 
         if (!$site_token || $token !== $site_token) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[WP Vault REST API] Invalid token. Expected: ' . ($site_token ? substr($site_token, 0, 10) . '...' : 'NOT SET') . ', Got: ' . substr($token, 0, 10) . '...');
+                // error_log('[WP Vault REST API] Invalid token. Expected: ' . ($site_token ? substr($site_token, 0, 10) . '...' : 'NOT SET') . ', Got: ' . substr($token, 0, 10) . '...');
             }
             return new \WP_Error(
                 'invalid_token',
@@ -99,9 +103,11 @@ class WP_Vault_REST_API
             );
         }
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault REST API] Permission granted');
+            // error_log('[WP Vault REST API] Permission granted');
         }
+        */
 
         return true;
     }
@@ -141,12 +147,14 @@ class WP_Vault_REST_API
         $table = $wpdb->prefix . 'wp_vault_jobs';
 
         // Check if job already exists
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,PluginCheck.Security.DirectDB.UnescapedDBParameter,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safe
         $existing = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table WHERE backup_id = %s",
             $backup_id
         ));
 
         if (!$existing) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Insert safe
             $wpdb->insert(
                 $table,
                 array(
@@ -162,6 +170,7 @@ class WP_Vault_REST_API
             );
         } else {
             // Update metadata if job already exists
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Update safe
             $wpdb->update(
                 $table,
                 array(
@@ -203,9 +212,11 @@ class WP_Vault_REST_API
      */
     public static function trigger_heartbeat($request)
     {
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Heartbeat trigger endpoint called');
+            // error_log('[WP Vault] Heartbeat trigger endpoint called');
         }
+        */
 
         require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
 
@@ -213,25 +224,31 @@ class WP_Vault_REST_API
         $site_id = get_option('wpv_site_id');
         $api_endpoint = get_option('wpv_api_endpoint');
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Site ID: ' . ($site_id ?: 'NOT SET'));
-            error_log('[WP Vault] API Endpoint: ' . ($api_endpoint ?: 'NOT SET'));
+            // error_log('[WP Vault] Site ID: ' . ($site_id ?: 'NOT SET'));
+            // error_log('[WP Vault] API Endpoint: ' . ($api_endpoint ?: 'NOT SET'));
         }
+        */
 
         // Send heartbeat to SaaS
         $api->send_heartbeat();
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Heartbeat sent to SaaS');
+            // error_log('[WP Vault] Heartbeat sent to SaaS');
         }
+        */
 
         // Update local heartbeat timestamp
         $timestamp = current_time('mysql');
         update_option('wpv_last_heartbeat_at', $timestamp);
 
+        /*
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[WP Vault] Local heartbeat timestamp updated: ' . $timestamp);
+            // error_log('[WP Vault] Local heartbeat timestamp updated: ' . $timestamp);
         }
+        */
 
         return rest_ensure_response(array(
             'success' => true,
