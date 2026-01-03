@@ -8,6 +8,10 @@
 
 namespace WP_Vault;
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 class WP_Vault
 {
     /**
@@ -1830,8 +1834,8 @@ class WP_Vault
         }
 
         if ($deleted_count > 0) {
-            /* translators: %d: number of files deleted */
             wp_send_json_success(array(
+                /* translators: %d: number of files deleted */
                 'message' => sprintf(esc_html__('Deleted %d local file(s)', 'wp-vault'), $deleted_count),
                 'has_local_files' => $has_local_files,
                 'deleted_count' => $deleted_count
@@ -1939,7 +1943,8 @@ class WP_Vault
             if (is_wp_error($response)) {
                 $error_msg = sprintf('Failed to download %s: %s', $filename, $response->get_error_message());
                 $log->write_log($error_msg, 'error');
-                $errors[] = sprintf(esc_html__('Failed to download %s: %s', 'wp-vault'), $filename, $response->get_error_message());
+                /* translators: 1: filename, 2: error message */
+                $errors[] = sprintf(esc_html__('Failed to download %1$s: %2$s', 'wp-vault'), $filename, $response->get_error_message());
                 continue;
             }
 
@@ -1947,7 +1952,8 @@ class WP_Vault
             if ($status_code !== 200) {
                 $error_msg = sprintf('Failed to download %s: HTTP %d', $filename, $status_code);
                 $log->write_log($error_msg, 'error');
-                $errors[] = sprintf(esc_html__('Failed to download %s: HTTP %d', 'wp-vault'), $filename, $status_code);
+                /* translators: 1: filename, 2: HTTP status code */
+                $errors[] = sprintf(esc_html__('Failed to download %1$s: HTTP %2$d', 'wp-vault'), $filename, $status_code);
                 continue;
             }
 
@@ -2004,9 +2010,12 @@ class WP_Vault
             $is_gzip_file = false;
             if ($is_first_chunk && $file_size > 0) {
                 // Check first 2 bytes for gzip magic number (0x1f 0x8b)
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary file operation for detecting gzip magic number
                 $handle = fopen($chunk_path, 'rb');
                 if ($handle) {
+                    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Binary file operation for detecting gzip magic number
                     $header = fread($handle, 2);
+                    // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file operation for detecting gzip magic number
                     fclose($handle);
                     if (strlen($header) === 2 && ord($header[0]) === 0x1f && ord($header[1]) === 0x8b) {
                         $is_gzip_file = true;
@@ -2075,7 +2084,8 @@ class WP_Vault
             } catch (\Exception $e) {
                 $error_msg = sprintf('Failed to extract chunk %s: %s', $chunk['filename'], $e->getMessage());
                 $log->write_log($error_msg, 'error');
-                $errors[] = sprintf(esc_html__('Failed to extract chunk %s: %s', 'wp-vault'), $chunk['filename'], $e->getMessage());
+                /* translators: 1: chunk filename, 2: error message */
+                $errors[] = sprintf(esc_html__('Failed to extract chunk %1$s: %2$s', 'wp-vault'), $chunk['filename'], $e->getMessage());
                 continue;
             }
         }
@@ -2202,7 +2212,8 @@ class WP_Vault
             } catch (\Exception $e) {
                 $error_msg = sprintf('Failed to create component archive %s: %s', $component_name, $e->getMessage());
                 $log->write_log($error_msg, 'error');
-                $errors[] = sprintf(esc_html__('Failed to create component archive %s: %s', 'wp-vault'), $component_name, $e->getMessage());
+                /* translators: 1: component name, 2: error message */
+                $errors[] = sprintf(esc_html__('Failed to create component archive %1$s: %2$s', 'wp-vault'), $component_name, $e->getMessage());
             }
         }
 
@@ -2252,7 +2263,8 @@ class WP_Vault
             );
 
             wp_send_json_success(array(
-                'message' => sprintf(esc_html__('Downloaded and combined %d chunk(s) into %d component file(s)', 'wp-vault'), $downloaded_count, $total_files),
+                /* translators: 1: number of chunks, 2: number of component files */
+                'message' => sprintf(esc_html__('Downloaded and combined %1$d chunk(s) into %2$d component file(s)', 'wp-vault'), $downloaded_count, $total_files),
                 'downloaded_count' => $downloaded_count,
                 'component_count' => $total_files,
                 'has_local_files' => true,
@@ -2362,6 +2374,7 @@ class WP_Vault
         }
 
         wp_send_json_success(array(
+            /* translators: %d: number of rows deleted */
             'message' => sprintf(esc_html__('Backup record removed from database (%d row(s) deleted)', 'wp-vault'), $deleted),
             'deleted_count' => $deleted,
         ));
@@ -2466,6 +2479,7 @@ class WP_Vault
                 wp_delete_file($path);
             }
         }
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Directory removal after recursive file deletion
         rmdir($dir);
     }
 

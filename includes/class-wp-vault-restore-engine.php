@@ -1008,9 +1008,9 @@ class WP_Vault_Restore_Engine
                 continue;
             }
 
-            // Sanitize table names (remove any backticks)
-            $temp_table_clean = str_replace('`', '', $temp_table);
-            $original_table_clean = str_replace('`', '', $original_table);
+            // Sanitize table names (remove any backticks and escape)
+            $temp_table_clean = esc_sql(str_replace('`', '', $temp_table));
+            $original_table_clean = esc_sql(str_replace('`', '', $original_table));
 
             // Skip excluded tables
             // Remove prefix to get base table name for comparison
@@ -1025,6 +1025,7 @@ class WP_Vault_Restore_Engine
             if ($this->is_excluded_table($table_name_clean)) {
                 $this->log->write_log('SKIPPING excluded table during atomic replacement: ' . $table_name_clean . ' (temp: ' . $temp_table . ', original: ' . $original_table . ')', 'notice');
                 // Drop the temp table since we're not using it
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.PreparedSQL.NotPrepared -- DROP TABLE cannot use placeholders, table name is escaped with esc_sql()
                 $wpdb->query("DROP TABLE IF EXISTS `{$temp_table_clean}`");
                 $skipped_count++;
                 continue;
@@ -1036,9 +1037,9 @@ class WP_Vault_Restore_Engine
 
             // Truly atomic approach: Swap current table to _old and temp table to current in ONE command
             // This prevents the table from "disappearing" even for a millisecond
-            $old_table_clean = $original_table_clean . '_old_' . time();
+            $old_table_clean = esc_sql($original_table_clean . '_old_' . time());
 
-            // Note: RENAME TABLE doesn't support prepared statements, but we use sanitized names inside backticks
+            // Note: RENAME TABLE doesn't support prepared statements, table names are escaped with esc_sql()
             $query = "RENAME TABLE `{$original_table_clean}` TO `{$old_table_clean}`, `{$temp_table_clean}` TO `{$original_table_clean}`";
 
             // If the original table doesn't exist (e.g., first restore), just rename temp to original
@@ -1047,6 +1048,7 @@ class WP_Vault_Restore_Engine
                 $query = "RENAME TABLE `{$temp_table_clean}` TO `{$original_table_clean}`";
             }
 
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.PreparedSQL.NotPrepared -- RENAME TABLE cannot use placeholders, table names are escaped with esc_sql()
             $result = $wpdb->query($query);
 
             if ($result === false) {
@@ -1054,6 +1056,7 @@ class WP_Vault_Restore_Engine
             } else {
                 // Drop the old table now that it's been swapped out
                 if ($table_exists) {
+                    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.PreparedSQL.NotPrepared -- DROP TABLE cannot use placeholders, table name is escaped with esc_sql()
                     $wpdb->query("DROP TABLE IF EXISTS `{$old_table_clean}`");
                 }
                 $replaced_count++;
@@ -1431,13 +1434,16 @@ class WP_Vault_Restore_Engine
     {
         // Check if source file exists and is readable
         if (!file_exists($source) || !is_readable($source)) {
-            throw new \Exception('Database file not found or not readable: ' . $source);
+            throw new \Exception('Database file not found or not readable: ' . esc_html($source));
         }
 
         // Check if it's actually a gzip file (check magic number 0x1f 0x8b)
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Binary file operation for detecting gzip magic number
         $handle = fopen($source, 'rb');
         if ($handle) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Binary file operation for detecting gzip magic number
             $header = fread($handle, 2);
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary file operation for detecting gzip magic number
             fclose($handle);
 
             if (strlen($header) !== 2 || ord($header[0]) !== 0x1f || ord($header[1]) !== 0x8b) {
@@ -1468,7 +1474,7 @@ class WP_Vault_Restore_Engine
         $fp_out = fopen($destination, 'wb');
         if (!$fp_out) {
             gzclose($fp_in);
-            throw new \Exception('Failed to open destination file for writing: ' . $destination);
+            throw new \Exception('Failed to open destination file for writing: ' . esc_html($destination));
         }
 
         $bytes_written = 0;
@@ -1476,15 +1482,17 @@ class WP_Vault_Restore_Engine
             $data = gzread($fp_in, 8192);
             if ($data === false) {
                 gzclose($fp_in);
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary decompression requires direct file access
                 fclose($fp_out);
-                throw new \Exception('Error reading from gzip file: ' . $source);
+                throw new \Exception('Error reading from gzip file: ' . esc_html($source));
             }
             // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- Binary decompression requires direct file access
             $written = fwrite($fp_out, $data);
             if ($written === false) {
                 gzclose($fp_in);
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Binary decompression requires direct file access
                 fclose($fp_out);
-                throw new \Exception('Error writing decompressed data to: ' . $destination);
+                throw new \Exception('Error writing decompressed data to: ' . esc_html($destination));
             }
             $bytes_written += $written;
         }
@@ -1507,11 +1515,14 @@ class WP_Vault_Restore_Engine
         if (!file_exists($sql_file))
             return;
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- SQL file validation requires direct file access
         $handle = fopen($sql_file, 'r');
         if (!$handle)
             return;
 
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- SQL file validation requires direct file access
         $sample = fread($handle, 1024);
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- SQL file validation requires direct file access
         fclose($handle);
 
         // Check if it contains SQL keywords
