@@ -1,7 +1,7 @@
 <?php
 /**
- * Plugin Name: WP Vault
- * Plugin URI: https://wpvault.cloud
+ * Plugin Name: WPVault Backup & Optimization
+ * Plugin URI: https://github.com/wpvault-cloud/wp-vault-plugin
  * Description: Ultimate WordPress backup and optimization platform with multi-storage support
  * Version: 1.0.0
  * Author: WP Vault

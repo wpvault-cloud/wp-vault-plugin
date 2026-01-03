@@ -35,7 +35,7 @@ function wpvault_display_dashboard_page()
         }
     }
 
-    $valid_tabs = array('dashboard', 'backups', 'restores', 'schedule', 'logs', 'features', 'settings', 'storage');
+    $valid_tabs = array('dashboard', 'backups', 'restores', 'schedule', 'logs', 'optimization', 'features', 'settings', 'storage');
     if (!in_array($current_tab, $valid_tabs)) {
         $current_tab = 'dashboard';
     }
@@ -50,7 +50,7 @@ function wpvault_display_dashboard_page()
                 <h1 class="wpv-page-title">
                     <img src="<?php echo esc_url(WP_VAULT_PLUGIN_URL . 'assets/images/logo.svg'); ?>" alt="WP Vault"
                         class="wpv-logo" style="width: 32px; height: 32px; margin-right: 10px; vertical-align: middle;" />
-                    <?php esc_html_e('WP Vault', 'wp-vault'); ?>
+                    <?php esc_html_e('WPVault Backup & Optimization', 'wp-vault'); ?>
                 </h1>
             </div>
             <div class="wpv-header-right">
@@ -79,6 +79,10 @@ function wpvault_display_dashboard_page()
             <a href="<?php echo esc_url(admin_url('admin.php?page=wp-vault&tab=logs')); ?>"
                 class="wpv-tab <?php echo $current_tab === 'logs' ? 'wpv-tab-active' : ''; ?>">
                 <?php esc_html_e('Logs', 'wp-vault'); ?>
+            </a>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=wp-vault&tab=optimization')); ?>"
+                class="wpv-tab <?php echo $current_tab === 'optimization' ? 'wpv-tab-active' : ''; ?>">
+                <?php esc_html_e('Optimization', 'wp-vault'); ?>
             </a>
             <a href="<?php echo esc_url(admin_url('admin.php?page=wp-vault&tab=features')); ?>"
                 class="wpv-tab <?php echo $current_tab === 'features' ? 'wpv-tab-active' : ''; ?>">
@@ -115,6 +119,9 @@ function wpvault_display_dashboard_page()
                         break;
                     case 'logs':
                         include WP_VAULT_PLUGIN_DIR . 'admin/partials/tab-logs.php';
+                        break;
+                    case 'optimization':
+                        include WP_VAULT_PLUGIN_DIR . 'admin/partials/tab-optimization.php';
                         break;
                     case 'features':
                         include WP_VAULT_PLUGIN_DIR . 'admin/partials/tab-features.php';

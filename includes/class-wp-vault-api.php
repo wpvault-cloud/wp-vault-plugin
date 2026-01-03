@@ -82,7 +82,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please register your site first.',
+                'error' => 'Not connected to Vault Cloud. Please connect your site first.',
             );
         }
 
@@ -135,7 +135,7 @@ class WP_Vault_API
             return array(
                 'success' => false,
                 'connected' => false,
-                'error' => 'Site not registered. Please register your site first.',
+                'error' => 'Not connected to Vault Cloud. Please connect your site first.',
             );
         }
 
@@ -273,7 +273,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please configure WP Vault first.',
+                'error' => 'Not connected to Vault Cloud. Please configure WP Vault first.',
             );
         }
 
@@ -317,7 +317,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered',
+                'error' => 'Not connected to Vault Cloud',
             );
         }
 
@@ -356,7 +356,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered',
+                'error' => 'Not connected to Vault Cloud',
             );
         }
 
@@ -424,7 +424,7 @@ class WP_Vault_API
     public function get_backup_logs($backup_id, $limit = 100)
     {
         if (!$this->site_id || !$this->site_token) {
-            return array('success' => false, 'error' => 'Site not registered');
+            return array('success' => false, 'error' => 'Not connected to Vault Cloud');
         }
 
         $url = add_query_arg(
@@ -456,7 +456,7 @@ class WP_Vault_API
     public function update_job_status($backup_id, $status, $size_bytes = null)
     {
         if (!$this->site_id || !$this->site_token) {
-            return array('success' => false, 'error' => 'Site not registered');
+            return array('success' => false, 'error' => 'Not connected to Vault Cloud');
         }
 
         $body = array(
@@ -541,7 +541,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please configure WP Vault first.',
+                'error' => 'Not connected to Vault Cloud. Please configure WP Vault first.',
             );
         }
 
@@ -592,7 +592,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please configure WP Vault first.',
+                'error' => 'Not connected to Vault Cloud. Please configure WP Vault first.',
             );
         }
 
@@ -639,7 +639,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please configure WP Vault first.',
+                'error' => 'Not connected to Vault Cloud. Please configure WP Vault first.',
             );
         }
 
@@ -705,7 +705,7 @@ class WP_Vault_API
     public function get_pending_jobs($site_id, $site_token)
     {
         if (!$site_id || !$site_token) {
-            return array('success' => false, 'error' => 'Site not registered');
+            return array('success' => false, 'error' => 'Not connected to Vault Cloud');
         }
 
         $url = $this->api_endpoint . "/api/v1/sites/{$site_id}/pending-jobs?site_token=" . urlencode($site_token);
@@ -786,7 +786,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please configure WP Vault first.',
+                'error' => 'Not connected to Vault Cloud. Please configure WP Vault first.',
             );
         }
 
@@ -828,7 +828,7 @@ class WP_Vault_API
         if (!$this->site_id || !$this->site_token) {
             return array(
                 'success' => false,
-                'error' => 'Site not registered. Please configure WP Vault first.',
+                'error' => 'Not connected to Vault Cloud. Please configure WP Vault first.',
             );
         }
 

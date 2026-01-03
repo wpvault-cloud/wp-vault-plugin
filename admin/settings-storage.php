@@ -38,8 +38,8 @@ $primary_storage = isset($storage_data['primary_storage']) ? $storage_data['prim
     <?php if (!$registered): ?>
         <div class="notice notice-warning inline">
             <p>
-                <strong><?php esc_html_e('Site Not Registered', 'wp-vault'); ?></strong><br>
-                <?php esc_html_e('Please register your site in the General tab to use cloud storage.', 'wp-vault'); ?>
+                <strong><?php esc_html_e('Not connected to Vault Cloud', 'wp-vault'); ?></strong><br>
+                <?php esc_html_e('Please connect your site in the General tab to use cloud storage.', 'wp-vault'); ?>
             </p>
         </div>
     <?php else: ?>
@@ -51,7 +51,7 @@ $primary_storage = isset($storage_data['primary_storage']) ? $storage_data['prim
             </h3>
             <p style="color: #075985; margin-bottom: 15px;">
                 <strong><?php esc_html_e('Security First:', 'wp-vault'); ?></strong>
-                <?php esc_html_e('WP Vault stores all storage credentials in the secure SaaS dashboard, not in your WordPress database. This protects your credentials even if WordPress is compromised.', 'wp-vault'); ?>
+                <?php esc_html_e('WP Vault stores all storage credentials in the secure Vault Cloud dashboard, not in your WordPress database. This protects your credentials even if WordPress is compromised.', 'wp-vault'); ?>
             </p>
             <ul style="color: #075985; margin-left: 20px; margin-bottom: 15px;">
                 <li>
@@ -68,7 +68,7 @@ $primary_storage = isset($storage_data['primary_storage']) ? $storage_data['prim
                 </li>
                 <li>
                     <strong><?php esc_html_e('Audit Logging:', 'wp-vault'); ?></strong>
-                    <?php esc_html_e('Full audit trail of storage access and usage in the SaaS dashboard.', 'wp-vault'); ?>
+                    <?php esc_html_e('Full audit trail of storage access and usage in the Vault Cloud dashboard.', 'wp-vault'); ?>
                 </li>
             </ul>
             <p style="margin: 0;">
@@ -177,7 +177,7 @@ $primary_storage = isset($storage_data['primary_storage']) ? $storage_data['prim
         <div class="notice notice-info inline">
             <p>
                 <strong><?php esc_html_e('Always Available:', 'wp-vault'); ?></strong>
-                <?php esc_html_e('You can always download backups directly to your computer, regardless of cloud storage settings. This works without any SaaS connection.', 'wp-vault'); ?>
+                <?php esc_html_e('You can always download backups directly to your computer, regardless of cloud storage settings. This works without any Vault Cloud connection.', 'wp-vault'); ?>
             </p>
         </div>
 

@@ -1,4 +1,4 @@
-# 🔒 WP Vault
+# 🔒 WPVault Backup & Optimization
 
 <div align="center">
 
@@ -36,11 +36,14 @@
 
 ## 🎯 Overview
 
-WP Vault is a comprehensive backup and optimization solution designed specifically for WordPress. It provides automatic backups, multi-storage support, incremental backups, and one-click restore functionality. Whether you're managing a single blog or multiple client sites, WP Vault ensures your WordPress data is always protected.
+WP Vault is a comprehensive backup and optimization solution for WordPress. It typically operates in two modes:
+1.  **Free Mode (Standalone):** Fully functional local backup and restore solution. Schedule automated backups, download them manually, and restore with one click. **No registration or cloud connection required.**
+2.  **Cloud Mode (Connected):** Connect to offload backups to cloud storage (S3, Google Drive, WP Vault Cloud, etc.) and manage multiple sites from a central dashboard.
 
 ### Why WP Vault?
 
-- ✅ **Multi-Storage Support** - Use your preferred cloud storage provider
+- ✅ **Independent** - Works 100% locally without registration
+- ✅ **Multi-Storage Support** - Use your preferred cloud storage provider (optional)
 - ✅ **Incremental Backups** - Save time and bandwidth with smart incremental backups
 - ✅ **Free Cloud Storage** - 3GB free storage on WP Vault Cloud
 - ✅ **One-Click Restore** - Restore your entire site or specific components
@@ -49,13 +52,25 @@ WP Vault is a comprehensive backup and optimization solution designed specifical
 
 ## ✨ Features
 
-### 🔄 Backup Features
+### 🏠 Local Features (Free Mode)
+*(No Connection Required)*
 
-- **Automatic Scheduled Backups** - Daily, weekly, or custom intervals
-- **Incremental Backups** - Only backup changed files, saving time and storage
+- **Local Backups** - Create full backups of your files and database
+- **Automated Scheduling** - Native WordPress cron scheduling (Daily, Weekly, Monthly)
+- **One-Click Restore** - Restore your site directly from local backups
+- **Downloads** - Download backup archives to your computer
 - **Full Site Backups** - Complete database and file system backups
 - **Selective Backups** - Choose specific directories or database tables
-- **Compression** - Automatic ZIP compression to reduce storage usage
+- **Compression** - Automatic ZIP compression
+
+### ☁️ Cloud Features
+*(Requires Connection)*
+
+- **Automatic Offsite Backups** - Offload backups to S3, Google Drive, etc.
+- **Incremental Backups** - Only backup changed files, saving time and storage
+- **WP Vault Cloud** - 3GB free storage included
+- **Central Dashboard** - Manage multiple sites from one place
+- **Secure Credentials** - Cloud API keys are stored securely off-site
 
 ### ☁️ Storage Options
 
@@ -84,11 +99,22 @@ WP Vault is a comprehensive backup and optimization solution designed specifical
 - **Activity Logging** - Complete audit trail
 - **Site Health Monitoring** - Regular heartbeat checks
 
-### 🚀 Optimization (Coming Soon)
+### 🚀 Optimization Features
 
-- Image optimization
-- Database cleanup
-- Performance monitoring
+- **Media Optimization** - Optimize images to reduce file sizes and improve site performance
+- **Multiple Compression Methods** - Choose from Native PHP, JavaScript client-side, or Server-side cloud optimization
+- **WebP Conversion** - Convert images to modern WebP format for better compression
+- **Bulk Processing** - Optimize multiple images at once with batch processing
+- **Optimization Tracking** - Track compression statistics, space saved, and optimization history
+- **Gutenberg Integration** - Optimize images directly from the block editor with one-click optimization modal
+- **Per-Image Optimization Modal** - Configure compression options for each image individually (method, quality, format, dimensions)
+- **Show Difference Feature** - Compare original and optimized images side-by-side with file size information
+- **Compression Settings Tab** - Dedicated settings page for configuring default optimization preferences
+- **Original File Preservation** - Keep original files by default (optional) with optimized versions saved separately
+- **Media Library Integration** - Optimized images appear as separate attachments (`-min.extension` format) in WordPress media library
+- **System Capabilities Check** - Automatic detection of available PHP extensions (GD, Imagick, WebP support)
+- **Smart Compression** - Automatic format selection and quality adjustment
+- **Optimization Statistics Dashboard** - View total images, optimized count, space saved, and average compression ratio
 
 ## 📦 Requirements
 
@@ -104,6 +130,8 @@ WP Vault is a comprehensive backup and optimization solution designed specifical
 - `curl` - For API communication
 - `openssl` - For encryption
 - `mbstring` - For string handling
+- `gd` or `imagick` - For image optimization (recommended)
+- `zlib` - For compression support (recommended)
 
 ## 🚀 Installation
 
@@ -139,10 +167,16 @@ composer require wpvault/wp-vault-plugin
    - Navigate to **Plugins** in your WordPress admin
    - Find **WP Vault** and click **Activate**
 
-2. **Register Your Site**
+2. **Start Backing Up (Free Mode)**
 
-   - Go to **WP Vault → Dashboard**
-   - Click **Register Site** to create your account
+   - Go to **WP Vault → Backups**
+   - Click **Backup Now** to creating a local backup
+   - Go to **WP Vault → Schedule** to set up automatic recurring backups
+
+3. **Connect Cloud Storage (Optional)**
+
+   - Go to **WP Vault → Settings**
+   - Register your site to enable cloud features
    - You'll receive 3GB of free cloud storage
 
 3. **Configure Storage** (Optional)
@@ -229,6 +263,37 @@ Port: [21 for FTP, 22 for SFTP]
 4. Configure URL replacement if restoring to a different domain
 5. Click **Start Restore**
 
+### Optimizing Images
+
+#### From Optimization Tab
+
+1. Navigate to **WP Vault → Optimization → Media**
+2. View optimization statistics (Total Images, Optimized, Unoptimized, Space Saved)
+3. Click **Optimize** on any image to open the optimization modal
+4. Configure options in the modal:
+   - **Compression Method**: Native PHP, JavaScript, or Server-side
+   - **Output Format**: Auto, WebP, JPEG, PNG, or Original
+   - **Quality**: Adjust slider (1-100%)
+   - **Max Width/Height**: Set maximum dimensions
+   - **Keep Original File**: Enabled by default to preserve original
+5. Click **Optimize Now** to process the image
+6. For optimized images, click **Show Difference** to compare original vs optimized side-by-side
+7. Use **Compress All** for bulk processing of unoptimized images
+
+#### Compression Settings
+
+1. Navigate to **WP Vault → Optimization → Compression Settings**
+2. Configure default compression method and system capabilities
+3. Set default output options (format, quality, dimensions)
+4. Save settings to apply as defaults for future optimizations
+
+#### Gutenberg Editor
+
+- Click on any image block in the editor
+- Click **WPVault Optimize** button (lightning bolt icon) in the toolbar
+- Configure options in the modal (same as admin interface)
+- Optimize with one click and see space saved notification
+
 ### Scheduling Backups
 
 1. Go to **WP Vault → Settings**
@@ -278,11 +343,39 @@ _Storage configuration and connection testing_
 ![Restore](screenshots/restore.png)
 _Restore interface with granular options_
 
+### Media Optimization
+
+![Optimization](screenshots/optimization.png)
+_Media optimization interface with compression settings and statistics_
+
+### Media Gallery
+
+![Unoptimized Media](screenshots/unoptimized-media.png)
+_Media gallery showing optimization status for each image with Optimize and Show Difference buttons_
+
+### Single Image Optimization
+
+![Single Image Optimize](screenshots/single-image-optimize.png)
+_Optimization modal with compression options, quality settings, and format selection_
+
+### Compression Settings
+
+![Compression Settings](screenshots/compression-settings.png)
+_Dedicated Compression Settings tab with method selection and system capabilities check_
+
 ## ❓ FAQ
 
 ### Is WP Vault free?
 
-Yes! WP Vault offers a free tier with 3GB of cloud storage. You can also use your own storage providers (S3, Google Drive, etc.) at no additional cost.
+Yes! **Free Mode is truly free and independent.** You can use it indefinitely for local backups and scheduling without ever registering.
+
+### Do I need to register or connect to the cloud?
+
+No. Registration is **completely optional**. You only need to connect if you want to store backups in the cloud (like S3 or Google Drive) or use our free 3GB cloud storage.
+
+### What features work without a connection?
+
+Local backups, automated scheduling (native WP-Cron), restores, and downloads all work 100% locally without any connection.
 
 ### What storage providers are supported?
 
@@ -311,6 +404,23 @@ WP Vault will automatically retry failed backups and notify you of any issues. Y
 ### Do I need technical knowledge to use WP Vault?
 
 No! WP Vault is designed to be user-friendly. The one-click backup and restore features make it accessible to users of all technical levels.
+
+### How does image optimization work?
+
+WP Vault offers three optimization methods:
+- **Native PHP**: Uses your server's GD or Imagick libraries to compress images. Works automatically if extensions are available.
+- **JavaScript**: Compresses images in your browser before uploading, reducing server load.
+- **Server-side**: Uses WPVault Cloud for advanced compression algorithms (requires connection).
+
+All methods support WebP conversion, quality adjustment, and automatic resizing. Optimization history is tracked in the database.
+
+### How are optimized images stored?
+
+By default, optimized images are saved as separate files with `-min.extension` format (e.g., `image-min.jpg`). They appear as separate attachments in your WordPress media library. The original file is preserved by default (can be disabled in settings). This allows you to compare original vs optimized versions and revert if needed.
+
+### Can I compare original and optimized images?
+
+Yes! For any optimized image, click the **Show Difference** button to open a side-by-side comparison modal. This shows the original image on the left and optimized version on the right, along with file sizes and space saved information.
 
 ## 🤝 Contributing
 
@@ -386,6 +496,21 @@ Found a bug? Please [open an issue](https://github.com/wpvault-cloud/wp-vault-pl
 - ✅ Basic restore functionality
 - ✅ Incremental backup support
 - ✅ Compression support
+- ✅ **Media Optimization System**
+  - Native PHP image compression (GD/Imagick)
+  - JavaScript client-side compression
+  - Server-side cloud optimization (WPVault Cloud)
+  - WebP conversion support
+  - Bulk image optimization
+  - Optimization statistics and tracking
+  - Gutenberg block editor integration
+  - System capabilities detection
+  - Per-image optimization modal with customizable options
+  - Show Difference feature for side-by-side comparison
+  - Compression Settings tab for default configuration
+  - Original file preservation (enabled by default)
+  - Optimized files saved as separate attachments (`-min.extension`)
+  - Media library integration with optimization status badges
 
 ## 💬 Support
 

@@ -213,13 +213,42 @@ class WP_Vault_Activator
             KEY created_at (created_at)
         ) $charset_collate;";
 
+        // Create wp_vault_media_optimization table for tracking image optimizations
+        $table_media_optimization = $wpdb->prefix . 'wp_vault_media_optimization';
+        $table_media_optimization_escaped = esc_sql($table_media_optimization);
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
+        $sql_media_optimization = "CREATE TABLE IF NOT EXISTS {$table_media_optimization_escaped} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            attachment_id bigint(20) NOT NULL,
+            original_size bigint(20) NOT NULL,
+            compressed_size bigint(20) NOT NULL,
+            compression_ratio decimal(5,2) DEFAULT 0.00,
+            space_saved bigint(20) DEFAULT 0,
+            compression_method varchar(50) DEFAULT 'php_native',
+            original_mime_type varchar(100) DEFAULT NULL,
+            output_mime_type varchar(100) DEFAULT NULL,
+            webp_converted tinyint(1) DEFAULT 0,
+            status varchar(20) DEFAULT 'pending',
+            error_message text DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY attachment_id (attachment_id),
+            KEY status (status),
+            KEY compression_method (compression_method),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql_settings);
         dbDelta($sql_files);
         dbDelta($sql_jobs);
+        if (isset($sql_job_logs)) {
         dbDelta($sql_job_logs);
+        }
         dbDelta($sql_backup_history);
         dbDelta($sql_restore_history);
+        dbDelta($sql_media_optimization);
 
         // Set default options
         add_option('wpv_api_endpoint', 'http://localhost:3000');

@@ -122,7 +122,7 @@ function wpvault_display_system_info()
                     if ($api_endpoint):
                         ?>
                         <li><a href="<?php echo esc_url($api_endpoint); ?>/dashboard"
-                                target="_blank"><?php esc_html_e('SaaS Dashboard', 'wp-vault'); ?> <span
+                                target="_blank"><?php esc_html_e('Vault Cloud Dashboard', 'wp-vault'); ?> <span
                                     class="dashicons dashicons-external"
                                     style="font-size: 14px; vertical-align: middle;"></span></a></li>
                     <?php endif; ?>

@@ -79,6 +79,14 @@ class WP_Vault
         add_action('wp_ajax_wpv_cancel_restore', array($this, 'ajax_cancel_restore'));
         add_action('wp_ajax_wpv_check_connection', array($this, 'ajax_check_connection'));
 
+        // Media optimization AJAX handlers
+        add_action('wp_ajax_wpv_optimize_single_image', array($this, 'ajax_optimize_single_image'));
+        add_action('wp_ajax_wpv_optimize_bulk_images', array($this, 'ajax_optimize_bulk_images'));
+        add_action('wp_ajax_wpv_get_optimization_stats', array($this, 'ajax_get_optimization_stats'));
+        add_action('wp_ajax_wpv_save_optimization_settings', array($this, 'ajax_save_optimization_settings'));
+        add_action('wp_ajax_wpv_check_system_capabilities', array($this, 'ajax_check_system_capabilities'));
+        add_action('wp_ajax_wpv_get_image_comparison', array($this, 'ajax_get_image_comparison'));
+
         // Backup execution (async)
         add_action('wpvault_execute_backup', array($this, 'execute_backup'), 10, 2);
 
@@ -112,6 +120,17 @@ class WP_Vault
             // Also check for local pending jobs that might be stuck
             add_action('admin_init', array($this, 'execute_pending_local_jobs'));
         }
+
+        // Initialize Local Scheduler
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-scheduler.php';
+        $scheduler = new WP_Vault_Scheduler();
+        $scheduler->init();
+
+        // Add AJAX handler for saving schedule
+        add_action('wp_ajax_wpv_save_schedule', array($this, 'ajax_save_schedule'));
+
+        // Handle the scheduled backup event
+        add_action('wp_vault_scheduled_backup', array($this, 'execute_scheduled_backup'));
     }
 
     /**
@@ -451,6 +470,37 @@ class WP_Vault
             ) $charset_collate;";
             dbDelta($sql_restore_history);
         }
+
+        // Create wp_vault_media_optimization table for tracking image optimizations
+        $table_media_optimization = $wpdb->prefix . 'wp_vault_media_optimization';
+        $table_media_optimization_escaped = esc_sql($table_media_optimization);
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Schema check, table name is escaped
+        $media_optimization_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_media_optimization));
+        if (!$media_optimization_exists) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- dbDelta requires table name in CREATE TABLE, table name is escaped
+            $sql_media_optimization = "CREATE TABLE IF NOT EXISTS {$table_media_optimization_escaped} (
+                id bigint(20) NOT NULL AUTO_INCREMENT,
+                attachment_id bigint(20) NOT NULL,
+                original_size bigint(20) NOT NULL,
+                compressed_size bigint(20) NOT NULL,
+                compression_ratio decimal(5,2) DEFAULT 0.00,
+                space_saved bigint(20) DEFAULT 0,
+                compression_method varchar(50) DEFAULT 'php_native',
+                original_mime_type varchar(100) DEFAULT NULL,
+                output_mime_type varchar(100) DEFAULT NULL,
+                webp_converted tinyint(1) DEFAULT 0,
+                status varchar(20) DEFAULT 'pending',
+                error_message text DEFAULT NULL,
+                created_at datetime DEFAULT CURRENT_TIMESTAMP,
+                updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY attachment_id (attachment_id),
+                KEY status (status),
+                KEY compression_method (compression_method),
+                KEY created_at (created_at)
+            ) $charset_collate;";
+            dbDelta($sql_media_optimization);
+        }
     }
 
     /**
@@ -475,8 +525,8 @@ class WP_Vault
     public function add_admin_menu()
     {
         add_menu_page(
-            esc_html__('WP Vault', 'wp-vault'),
-            esc_html__('WP Vault', 'wp-vault'),
+            esc_html__('WPVault', 'wp-vault'),
+            esc_html__('WPVault', 'wp-vault'),
             'manage_options',
             'wp-vault',
             array($this, 'render_dashboard_page'),
@@ -530,22 +580,59 @@ class WP_Vault
      */
     public function enqueue_admin_assets($hook)
     {
-        if (strpos($hook, 'wp-vault') === false) {
-            return;
+        // Enqueue for WPVault admin pages
+        if (strpos($hook, 'wp-vault') !== false) {
+            wp_enqueue_style('wp-vault-admin', WP_VAULT_PLUGIN_URL . 'assets/css/admin.css', array(), WP_VAULT_VERSION);
+            wp_enqueue_script('wp-vault-admin', WP_VAULT_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), WP_VAULT_VERSION, true);
+
+            // Enqueue media optimizer for optimization tab
+            wp_enqueue_script('wp-vault-media-optimizer', WP_VAULT_PLUGIN_URL . 'assets/js/media-optimizer.js', array('jquery', 'wp-vault-admin'), WP_VAULT_VERSION, true);
+
+            wp_localize_script('wp-vault-admin', 'wpVault', array(
+                'ajax_url' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('wp-vault'),
+                'i18n' => array(
+                    'testing' => esc_html__('Testing connection...', 'wp-vault'),
+                    'success' => esc_html__('Connection successful!', 'wp-vault'),
+                    'failed' => esc_html__('Connection failed', 'wp-vault'),
+                ),
+            ));
         }
 
-        wp_enqueue_style('wp-vault-admin', WP_VAULT_PLUGIN_URL . 'assets/css/admin.css', array(), WP_VAULT_VERSION);
-        wp_enqueue_script('wp-vault-admin', WP_VAULT_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), WP_VAULT_VERSION, true);
+        // Enqueue Gutenberg optimizer for block editor
+        if ($hook === 'post.php' || $hook === 'post-new.php') {
+            $script_url = WP_VAULT_PLUGIN_URL . 'assets/js/gutenberg-optimizer.js';
 
-        wp_localize_script('wp-vault-admin', 'wpVault', array(
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('wp-vault'),
-            'i18n' => array(
-                'testing' => esc_html__('Testing connection...', 'wp-vault'),
-                'success' => esc_html__('Connection successful!', 'wp-vault'),
-                'failed' => esc_html__('Connection failed', 'wp-vault'),
-            ),
-        ));
+            // Debug: Log script URL (only in debug mode)
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[WPVault] Enqueuing Gutenberg optimizer: ' . $script_url);
+            }
+
+            wp_enqueue_script(
+                'wpvault-gutenberg-optimizer',
+                $script_url,
+                array(
+                    'wp-plugins',
+                    'wp-edit-post',
+                    'wp-element',
+                    'wp-components',
+                    'wp-data',
+                    'wp-hooks',
+                    'wp-block-editor',
+                    'wp-compose',
+                ),
+                WP_VAULT_VERSION,
+                true
+            );
+
+            wp_localize_script('wpvault-gutenberg-optimizer', 'wpVaultGutenberg', array(
+                'ajax_url' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('wp-vault'),
+            ));
+
+            // Add inline script to verify loading
+            wp_add_inline_script('wpvault-gutenberg-optimizer', 'console.log("[WPVault] Script enqueued and should be loading...");', 'before');
+        }
     }
 
     /**
@@ -3352,4 +3439,421 @@ class WP_Vault
             wp_send_json_error($result);
         }
     }
+
+    /**
+     * AJAX: Save local schedule settings
+     */
+    public function ajax_save_schedule()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+        }
+
+        $settings = array(
+            'enabled' => isset($_POST['enabled']) && $_POST['enabled'] === 'true',
+            'frequency' => isset($_POST['frequency']) ? sanitize_text_field(wp_unslash($_POST['frequency'])) : 'daily',
+            'backup_type' => isset($_POST['backup_type']) ? sanitize_text_field(wp_unslash($_POST['backup_type'])) : 'full',
+        );
+
+        $scheduler = new WP_Vault_Scheduler();
+
+        if ($scheduler->update_schedule($settings)) {
+            wp_send_json_success(array(
+                'message' => __('Schedule updated successfully', 'wp-vault'),
+                'next_run' => $scheduler->get_formatted_next_run(),
+            ));
+        } else {
+            wp_send_json_error(array('message' => __('Failed to update schedule', 'wp-vault')));
+        }
+    }
+
+    /**
+     * AJAX handler: Optimize single image
+     */
+    public function ajax_optimize_single_image()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-vault')));
+        }
+
+        $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
+        if (!$attachment_id) {
+            wp_send_json_error(array('message' => __('Invalid attachment ID.', 'wp-vault')));
+        }
+
+        $method = isset($_POST['method']) ? sanitize_text_field($_POST['method']) : 'php_native';
+        $options = array(
+            'quality' => isset($_POST['quality']) ? absint($_POST['quality']) : 80,
+            'output_format' => isset($_POST['output_format']) ? sanitize_text_field($_POST['output_format']) : 'auto',
+            'max_width' => isset($_POST['max_width']) ? absint($_POST['max_width']) : 2048,
+            'max_height' => isset($_POST['max_height']) ? absint($_POST['max_height']) : 2048,
+            'keep_original' => isset($_POST['keep_original']) ? (bool) $_POST['keep_original'] : true,
+        );
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-media-optimizer.php';
+
+        if ($method === 'javascript') {
+            // JavaScript compression - file should be uploaded via AJAX
+            if (!isset($_FILES['compressed_file'])) {
+                wp_send_json_error(array('message' => __('No compressed file received.', 'wp-vault')));
+            }
+
+            $file = $_FILES['compressed_file'];
+            $file_path = get_attached_file($attachment_id);
+
+            // Get original MIME type BEFORE replacing the file
+            $original_mime_type = get_post_mime_type($attachment_id);
+
+            // Get original size: check database first (for true original), then current file
+            $existing_record = WP_Vault_Media_Optimizer::get_optimization_status($attachment_id);
+            if ($existing_record && isset($existing_record['original_size'])) {
+                // Use the true original size from database
+                $original_size = (int) $existing_record['original_size'];
+                // Also use the original MIME type from database if available
+                if (!empty($existing_record['original_mime_type'])) {
+                    $original_mime_type = $existing_record['original_mime_type'];
+                }
+            } else {
+                // First optimization: use current file size as original
+                $original_size = file_exists($file_path) ? filesize($file_path) : 0;
+            }
+
+            // Save optimized file as -min.extension
+            $file_info = pathinfo($file_path);
+            $output_mime_type = isset($_POST['output_mime_type']) ? sanitize_text_field($_POST['output_mime_type']) : 'image/jpeg';
+            $ext = ($output_mime_type === 'image/webp') ? 'webp' : (($output_mime_type === 'image/png') ? 'png' : 'jpg');
+            $optimized_filename = $file_info['filename'] . '-min.' . $ext;
+            $optimized_file_path = $file_info['dirname'] . '/' . $optimized_filename;
+
+            // Move uploaded file to -min.extension location
+            if (move_uploaded_file($file['tmp_name'], $optimized_file_path)) {
+                $compressed_size = filesize($optimized_file_path);
+                $space_saved = $original_size - $compressed_size;
+                $compression_ratio = $original_size > 0 ? (($space_saved / $original_size) * 100) : 0;
+
+                // Create new attachment for optimized file if it doesn't exist
+                $optimized_attachment_id = WP_Vault_Media_Optimizer::get_optimized_attachment_id($attachment_id);
+                if (!$optimized_attachment_id) {
+                    $attachment_data = array(
+                        'post_mime_type' => $output_mime_type,
+                        'post_title' => $file_info['filename'] . ' (Optimized)',
+                        'post_content' => '',
+                        'post_status' => 'inherit',
+                        'post_parent' => wp_get_post_parent_id($attachment_id),
+                    );
+                    $optimized_attachment_id = wp_insert_attachment($attachment_data, $optimized_file_path);
+
+                    if (!is_wp_error($optimized_attachment_id)) {
+                        $metadata = wp_generate_attachment_metadata($optimized_attachment_id, $optimized_file_path);
+                        wp_update_attachment_metadata($optimized_attachment_id, $metadata);
+                        update_post_meta($optimized_attachment_id, '_wpvault_original_attachment_id', $attachment_id);
+                        update_post_meta($attachment_id, '_wpvault_optimized_attachment_id', $optimized_attachment_id);
+                    }
+                } else {
+                    // Update existing optimized attachment
+                    wp_update_post(array(
+                        'ID' => $optimized_attachment_id,
+                        'post_mime_type' => $output_mime_type,
+                    ));
+                    $metadata = wp_generate_attachment_metadata($optimized_attachment_id, $optimized_file_path);
+                    wp_update_attachment_metadata($optimized_attachment_id, $metadata);
+                }
+
+                // Check if we should replace original (keep_original option)
+                $keep_original = isset($_POST['keep_original']) ? (bool) $_POST['keep_original'] : true;
+                if (!$keep_original) {
+                    // Backup original
+                    $backup_path = $file_path . '.backup';
+                    if (file_exists($file_path) && !file_exists($backup_path)) {
+                        copy($file_path, $backup_path);
+                    }
+
+                    // Replace original with optimized
+                    copy($optimized_file_path, $file_path);
+
+                    // Update original attachment metadata
+                    $metadata = wp_generate_attachment_metadata($attachment_id, $file_path);
+                    wp_update_attachment_metadata($attachment_id, $metadata);
+
+                    // Update post MIME type if it changed
+                    if ($output_mime_type !== $original_mime_type) {
+                        wp_update_post(array(
+                            'ID' => $attachment_id,
+                            'post_mime_type' => $output_mime_type,
+                        ));
+                    }
+                }
+
+                // Save record
+                $record_data = array(
+                    'attachment_id' => $attachment_id,
+                    'original_size' => $original_size,
+                    'compressed_size' => $compressed_size,
+                    'compression_ratio' => round($compression_ratio, 2),
+                    'space_saved' => $space_saved,
+                    'compression_method' => 'javascript',
+                    'original_mime_type' => $original_mime_type,
+                    'output_mime_type' => $output_mime_type,
+                    'webp_converted' => isset($_POST['webp_converted']) ? (int) $_POST['webp_converted'] : 0,
+                    'status' => 'completed',
+                );
+                WP_Vault_Media_Optimizer::save_optimization_record($record_data);
+
+                // Store optimized file path
+                update_post_meta($attachment_id, '_wpvault_optimized_file_path', $optimized_file_path);
+
+                wp_send_json_success(array(
+                    'attachment_id' => $attachment_id,
+                    'optimized_attachment_id' => $optimized_attachment_id,
+                    'optimized_file_path' => $optimized_file_path,
+                    'original_size' => $original_size,
+                    'compressed_size' => $compressed_size,
+                    'space_saved' => $space_saved,
+                    'compression_ratio' => round($compression_ratio, 2),
+                ));
+            } else {
+                wp_send_json_error(array('message' => __('Failed to save compressed file.', 'wp-vault')));
+            }
+        } elseif ($method === 'server_side') {
+            $result = WP_Vault_Media_Optimizer::optimize_with_server($attachment_id);
+            if (is_wp_error($result)) {
+                wp_send_json_error(array('message' => $result->get_error_message()));
+            }
+            wp_send_json_success($result);
+        } else {
+            // PHP native
+            $result = WP_Vault_Media_Optimizer::optimize_with_php($attachment_id, $options);
+            if (is_wp_error($result)) {
+                wp_send_json_error(array('message' => $result->get_error_message()));
+            }
+            wp_send_json_success($result);
+        }
+    }
+
+    /**
+     * AJAX handler: Optimize bulk images
+     */
+    public function ajax_optimize_bulk_images()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-vault')));
+        }
+
+        $attachment_ids = isset($_POST['attachment_ids']) ? array_map('absint', $_POST['attachment_ids']) : array();
+        if (empty($attachment_ids)) {
+            wp_send_json_error(array('message' => __('No attachments specified.', 'wp-vault')));
+        }
+
+        $method = isset($_POST['method']) ? sanitize_text_field($_POST['method']) : 'php_native';
+        $options = array(
+            'quality' => isset($_POST['quality']) ? absint($_POST['quality']) : 80,
+            'output_format' => isset($_POST['output_format']) ? sanitize_text_field($_POST['output_format']) : 'auto',
+            'max_width' => isset($_POST['max_width']) ? absint($_POST['max_width']) : 2048,
+            'max_height' => isset($_POST['max_height']) ? absint($_POST['max_height']) : 2048,
+        );
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-media-optimizer.php';
+
+        $results = array();
+        $success_count = 0;
+        $error_count = 0;
+
+        foreach ($attachment_ids as $attachment_id) {
+            if ($method === 'server_side') {
+                $result = WP_Vault_Media_Optimizer::optimize_with_server($attachment_id);
+            } else {
+                $result = WP_Vault_Media_Optimizer::optimize_with_php($attachment_id, $options);
+            }
+
+            if (is_wp_error($result)) {
+                $error_count++;
+                $results[] = array(
+                    'attachment_id' => $attachment_id,
+                    'success' => false,
+                    'error' => $result->get_error_message(),
+                );
+            } else {
+                $success_count++;
+                $results[] = array(
+                    'attachment_id' => $attachment_id,
+                    'success' => true,
+                    'data' => $result,
+                );
+            }
+        }
+
+        wp_send_json_success(array(
+            'results' => $results,
+            'success_count' => $success_count,
+            'error_count' => $error_count,
+            'total' => count($attachment_ids),
+        ));
+    }
+
+    /**
+     * AJAX handler: Get optimization statistics
+     */
+    public function ajax_get_optimization_stats()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-vault')));
+        }
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-media-optimizer.php';
+        $stats = WP_Vault_Media_Optimizer::get_optimization_stats();
+
+        wp_send_json_success($stats);
+    }
+
+    /**
+     * AJAX handler: Save optimization settings
+     */
+    public function ajax_save_optimization_settings()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-vault')));
+        }
+
+        $settings = array(
+            'compression_method' => isset($_POST['compression_method']) ? sanitize_text_field($_POST['compression_method']) : 'php_native',
+            'quality' => isset($_POST['quality']) ? absint($_POST['quality']) : 80,
+            'output_format' => isset($_POST['output_format']) ? sanitize_text_field($_POST['output_format']) : 'auto',
+            'max_width' => isset($_POST['max_width']) ? absint($_POST['max_width']) : 2048,
+            'max_height' => isset($_POST['max_height']) ? absint($_POST['max_height']) : 2048,
+            'keep_original' => isset($_POST['keep_original']) ? (bool) $_POST['keep_original'] : true,
+        );
+
+        update_option('wpv_optimization_settings', $settings);
+
+        wp_send_json_success(array('message' => __('Settings saved successfully.', 'wp-vault')));
+    }
+
+    /**
+     * AJAX handler: Check system capabilities
+     */
+    public function ajax_check_system_capabilities()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-vault')));
+        }
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-media-optimizer.php';
+        $capabilities = WP_Vault_Media_Optimizer::check_php_capabilities();
+
+        wp_send_json_success($capabilities);
+    }
+
+    /**
+     * AJAX handler: Get image comparison (original vs optimized)
+     */
+    public function ajax_get_image_comparison()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions.', 'wp-vault')));
+        }
+
+        $attachment_id = isset($_POST['attachment_id']) ? absint($_POST['attachment_id']) : 0;
+        if (!$attachment_id) {
+            wp_send_json_error(array('message' => __('Invalid attachment ID.', 'wp-vault')));
+        }
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-media-optimizer.php';
+
+        // Get optimization status
+        $optimization_status = WP_Vault_Media_Optimizer::get_optimization_status($attachment_id);
+        if (!$optimization_status) {
+            wp_send_json_error(array('message' => __('Image not optimized yet.', 'wp-vault')));
+        }
+
+        // Get original image URL
+        $original_url = wp_get_attachment_image_url($attachment_id, 'full');
+        if (!$original_url) {
+            wp_send_json_error(array('message' => __('Original image not found.', 'wp-vault')));
+        }
+
+        // Get optimized file path
+        $optimized_file_path = WP_Vault_Media_Optimizer::get_optimized_file_path($attachment_id);
+        if (!$optimized_file_path || !file_exists($optimized_file_path)) {
+            wp_send_json_error(array('message' => __('Optimized file not found.', 'wp-vault')));
+        }
+
+        // Get optimized attachment ID
+        $optimized_attachment_id = WP_Vault_Media_Optimizer::get_optimized_attachment_id($attachment_id);
+        if ($optimized_attachment_id) {
+            $optimized_url = wp_get_attachment_image_url($optimized_attachment_id, 'full');
+        } else {
+            // Fallback: construct URL from file path
+            $upload_dir = wp_upload_dir();
+            $optimized_url = str_replace($upload_dir['basedir'], $upload_dir['baseurl'], $optimized_file_path);
+        }
+
+        // Get file sizes
+        $original_size = isset($optimization_status['original_size']) ? (int) $optimization_status['original_size'] : 0;
+        $compressed_size = isset($optimization_status['compressed_size']) ? (int) $optimization_status['compressed_size'] : 0;
+        $space_saved = isset($optimization_status['space_saved']) ? (int) $optimization_status['space_saved'] : 0;
+
+        wp_send_json_success(array(
+            'original_url' => $original_url,
+            'optimized_url' => $optimized_url,
+            'original_size' => size_format($original_size),
+            'optimized_size' => size_format($compressed_size),
+            'space_saved' => size_format($space_saved) . ' (' . number_format($optimization_status['compression_ratio'], 1) . '%)',
+        ));
+    }
+
+    /**
+     * Execute scheduled backup (native WP Cron)
+     */
+    public function execute_scheduled_backup()
+    {
+        // 1. Get schedule settings
+        $scheduler = new WP_Vault_Scheduler();
+        $settings = $scheduler->get_schedule();
+
+        if (empty($settings['enabled'])) {
+            return;
+        }
+
+        // 2. Generate Backup ID
+        $backup_id = uniqid('auto_');
+
+        // 3. Log start (optional)
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            // error_log("[WP Vault] Starting scheduled backup: {$backup_id}");
+        }
+
+        // 4. Create initial record in DB
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wp_vault_jobs';
+
+        $wpdb->insert(
+            $table_name,
+            array(
+                'backup_id' => $backup_id,
+                'job_type' => $settings['backup_type'],
+                'status' => 'pending',
+                'description' => 'Scheduled Backup (' . $settings['frequency'] . ')',
+                'created_at' => current_time('mysql'),
+                'trigger_source' => 'schedule'
+            )
+        );
+
+        // 5. Trigger backup using existing engine
+        $this->execute_backup($backup_id, $settings['backup_type']);
+    }
 }
+

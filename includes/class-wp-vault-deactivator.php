@@ -17,6 +17,6 @@ class WP_Vault_Deactivator
     {
         // Clear scheduled events
         wp_clear_scheduled_hook('wpv_heartbeat');
-        wp_clear_scheduled_hook('wpv_backup_schedule');
+        wp_clear_scheduled_hook('wp_vault_scheduled_backup');
     }
 }
