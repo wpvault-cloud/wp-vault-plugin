@@ -1083,7 +1083,7 @@ class WP_Vault_Backup_Engine
             case 'gcs':
                 // GCS (WP Vault Cloud) uses API endpoint and site token
                 return array(
-                    'api_endpoint' => get_option('wpv_api_endpoint', 'http://host.docker.internal:3000'),
+                    'api_endpoint' => get_option('wpv_api_endpoint', 'https://wpvault.cloud'),
                     'site_token' => get_option('wpv_site_token', ''),
                 );
             case 's3':

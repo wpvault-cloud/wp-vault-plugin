@@ -118,7 +118,7 @@ function wpvault_display_system_info()
                             href="<?php echo esc_url(admin_url('admin.php?page=wp-vault&tab=storage')); ?>"><?php esc_html_e('Storage', 'wp-vault'); ?></a>
                     </li>
                     <?php
-                    $api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
+                    $api_endpoint = get_option('wpv_api_endpoint', 'https://wpvault.cloud');
                     if ($api_endpoint):
                         ?>
                         <li><a href="<?php echo esc_url($api_endpoint); ?>/dashboard"

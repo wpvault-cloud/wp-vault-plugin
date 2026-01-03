@@ -215,10 +215,10 @@ class WP_Vault_Media_Optimizer
 
         // Copy optimized file to -min.extension location
         if (!copy($optimized_path, $optimized_file_path)) {
-            unlink($optimized_path);
+            wp_delete_file($optimized_path);
             return new \WP_Error('save_failed', __('Failed to save optimized file.', 'wp-vault'));
         }
-        unlink($optimized_path);
+        wp_delete_file($optimized_path);
 
         // Create new attachment for optimized file if it doesn't exist
         $optimized_attachment_id = self::get_optimized_attachment_id($attachment_id);

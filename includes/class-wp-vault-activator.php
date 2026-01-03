@@ -244,14 +244,14 @@ class WP_Vault_Activator
         dbDelta($sql_files);
         dbDelta($sql_jobs);
         if (isset($sql_job_logs)) {
-        dbDelta($sql_job_logs);
+            dbDelta($sql_job_logs);
         }
         dbDelta($sql_backup_history);
         dbDelta($sql_restore_history);
         dbDelta($sql_media_optimization);
 
         // Set default options
-        add_option('wpv_api_endpoint', 'http://localhost:3000');
+        add_option('wpv_api_endpoint', 'https://wpvault.cloud');
         add_option('wpv_storage_type', 'gcs'); // Default to WP Vault Cloud
         add_option('wpv_primary_storage_type', 'gcs'); // Set GCS as primary storage
         add_option('wpv_backup_schedule', 'daily');

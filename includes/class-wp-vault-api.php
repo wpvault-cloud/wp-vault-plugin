@@ -18,7 +18,7 @@ class WP_Vault_API
 
     public function __construct()
     {
-        $this->api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
+        $this->api_endpoint = get_option('wpv_api_endpoint', 'https://wpvault.cloud');
         $this->site_id = get_option('wpv_site_id');
         $this->site_token = get_option('wpv_site_token');
 

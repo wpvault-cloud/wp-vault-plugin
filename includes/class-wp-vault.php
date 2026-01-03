@@ -48,6 +48,8 @@ class WP_Vault
         if (is_admin()) {
             add_action('admin_menu', array($this, 'add_admin_menu'));
             add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
+            // Handle form submissions early, before any output
+            add_action('admin_init', array($this, 'handle_settings_form_submission'));
             // Redirect old pages early, before any output
             add_action('admin_init', array($this, 'redirect_old_pages'));
         }
@@ -573,6 +575,26 @@ class WP_Vault
             'wp-vault-settings', // Keep old slug for compatibility
             array($this, 'render_dashboard_page') // Render dashboard with storage tab
         );
+
+        // Optimization
+        add_submenu_page(
+            'wp-vault',
+            esc_html__('Optimization', 'wp-vault'),
+            esc_html__('Optimization', 'wp-vault'),
+            'manage_options',
+            'wp-vault-optimization',
+            array($this, 'render_dashboard_page')
+        );
+
+        // Community & Support
+        add_submenu_page(
+            'wp-vault',
+            esc_html__('Community & Support', 'wp-vault'),
+            esc_html__('Community & Support', 'wp-vault'),
+            'manage_options',
+            'wp-vault-community-support',
+            array($this, 'render_dashboard_page')
+        );
     }
 
     /**
@@ -641,6 +663,81 @@ class WP_Vault
     public function render_dashboard_page()
     {
         require_once WP_VAULT_PLUGIN_DIR . 'admin/dashboard.php';
+    }
+
+    /**
+     * Handle settings form submission early (before any output)
+     */
+    public function handle_settings_form_submission()
+    {
+        // Only process on our admin pages
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        if ($page !== 'wp-vault') {
+            return;
+        }
+
+        // Handle settings save
+        if (isset($_POST['wpv_save_settings'])) {
+            error_log('[WP Vault] Settings form submission detected');
+
+            // Verify nonce
+            if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'wpv_settings')) {
+                error_log('[WP Vault] Nonce verification failed');
+                wp_die(esc_html__('Security check failed. Please try again.', 'wp-vault'), esc_html__('Error', 'wp-vault'), array('back_link' => true));
+                return;
+            }
+
+            error_log('[WP Vault] Nonce verified, processing settings...');
+
+            // Save settings
+            $api_endpoint = isset($_POST['api_endpoint']) ? sanitize_text_field(wp_unslash($_POST['api_endpoint'])) : '';
+            $storage_type = isset($_POST['storage_type']) ? sanitize_text_field(wp_unslash($_POST['storage_type'])) : '';
+
+            update_option('wpv_api_endpoint', $api_endpoint);
+            update_option('wpv_storage_type', $storage_type);
+
+            error_log('[WP Vault] API Endpoint: ' . $api_endpoint);
+            error_log('[WP Vault] Storage Type: ' . $storage_type);
+
+            if (isset($_POST['compression_mode'])) {
+                $wpvault_compression_mode = sanitize_text_field(wp_unslash($_POST['compression_mode']));
+                if (in_array($wpvault_compression_mode, array('fast', 'legacy'))) {
+                    update_option('wpv_compression_mode', $wpvault_compression_mode);
+                    error_log('[WP Vault] Compression Mode: ' . $wpvault_compression_mode);
+                }
+            }
+
+            if (isset($_POST['file_split_size'])) {
+                $wpvault_split_size = isset($_POST['file_split_size']) ? absint(wp_unslash($_POST['file_split_size'])) : 200;
+                if ($wpvault_split_size >= 50 && $wpvault_split_size <= 1000) {
+                    update_option('wpv_file_split_size', $wpvault_split_size);
+                    error_log('[WP Vault] File Split Size: ' . $wpvault_split_size);
+                }
+            }
+
+            $wpvault_storage_type = isset($_POST['storage_type']) ? sanitize_text_field(wp_unslash($_POST['storage_type'])) : '';
+            if ($wpvault_storage_type === 's3') {
+                update_option('wpv_s3_endpoint', isset($_POST['s3_endpoint']) ? sanitize_text_field(wp_unslash($_POST['s3_endpoint'])) : '');
+                update_option('wpv_s3_bucket', isset($_POST['s3_bucket']) ? sanitize_text_field(wp_unslash($_POST['s3_bucket'])) : '');
+                update_option('wpv_s3_access_key', isset($_POST['s3_access_key']) ? sanitize_text_field(wp_unslash($_POST['s3_access_key'])) : '');
+                update_option('wpv_s3_secret_key', isset($_POST['s3_secret_key']) ? sanitize_text_field(wp_unslash($_POST['s3_secret_key'])) : '');
+                update_option('wpv_s3_region', isset($_POST['s3_region']) ? sanitize_text_field(wp_unslash($_POST['s3_region'])) : '');
+            }
+
+            error_log('[WP Vault] Settings saved successfully, preparing redirect...');
+
+            // Redirect to prevent resubmission and show success message
+            $redirect_url = add_query_arg(array(
+                'page' => 'wp-vault',
+                'tab' => 'settings',
+                'settings-updated' => 'true'
+            ), admin_url('admin.php'));
+
+            error_log('[WP Vault] Redirect URL: ' . $redirect_url);
+
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
     }
 
     /**
@@ -783,7 +880,7 @@ class WP_Vault
 
         // SaaS Dashboard (if registered)
         if (get_option('wpv_site_id')) {
-            $api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
+            $api_endpoint = get_option('wpv_api_endpoint', 'https://wpvault.cloud');
             $wp_admin_bar->add_node(array(
                 'id' => 'wp-vault-saas-dashboard',
                 'parent' => 'wp-vault',
@@ -816,7 +913,7 @@ class WP_Vault
             // For GCS (WP Vault Cloud), use API endpoint and site token from options
             if ($storage_type === 'gcs') {
                 $config = array(
-                    'api_endpoint' => get_option('wpv_api_endpoint', 'http://host.docker.internal:3000'),
+                    'api_endpoint' => get_option('wpv_api_endpoint', 'https://wpvault.cloud'),
                     'site_token' => get_option('wpv_site_token', ''),
                 );
             }
@@ -3530,6 +3627,7 @@ class WP_Vault
             $optimized_file_path = $file_info['dirname'] . '/' . $optimized_filename;
 
             // Move uploaded file to -min.extension location
+            // phpcs:ignore Generic.PHP.ForbiddenFunctions.Found -- move_uploaded_file() is required for handling uploaded files from AJAX
             if (move_uploaded_file($file['tmp_name'], $optimized_file_path)) {
                 $compressed_size = filesize($optimized_file_path);
                 $space_saved = $original_size - $compressed_size;

@@ -22,7 +22,7 @@ function wpvault_display_connection_status()
     $api = new \WP_Vault\WP_Vault_API();
     $registered = (bool) get_option('wpv_site_id');
     $site_id = get_option('wpv_site_id');
-    $api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
+    $api_endpoint = get_option('wpv_api_endpoint', 'https://wpvault.cloud');
     $last_heartbeat = get_option('wpv_last_heartbeat_at');
 
     // Get cached connection status
@@ -97,7 +97,7 @@ function wpvault_display_connection_status()
 
                 <?php if ($api_endpoint): ?>
                     <div class="wpv-info-row">
-                        <span class="wpv-info-label"><?php esc_html_e('API Endpoint:', 'wp-vault'); ?></span>
+                        <span class="wpv-info-label"><?php esc_html_e('Cloud URL:', 'wp-vault'); ?></span>
                         <span class="wpv-info-value wpv-code-small"><?php
                         $parsed = wp_parse_url($api_endpoint);
                         echo esc_html(isset($parsed['host']) ? $parsed['host'] : '');

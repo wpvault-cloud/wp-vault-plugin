@@ -391,29 +391,40 @@ function wpvault_display_optimization_tab()
                                                 $compressed_size = isset($optimization_status['compressed_size']) ? (int) $optimization_status['compressed_size'] : $file_size;
                                                 ?>
                                                 <div style="margin-top: 5px;">
+                                                    <?php /* translators: %s: Original file size */ ?>
                                                     <span
                                                         style="color: #666;"><?php echo esc_html(sprintf(__('Original: %s', 'wp-vault'), size_format($original_size))); ?></span>
                                                     <span style="margin: 0 5px; color: #999;">→</span>
+                                                    <?php /* translators: %s: Compressed file size */ ?>
                                                     <span
                                                         style="color: #2271b1; font-weight: bold;"><?php echo esc_html(sprintf(__('Compressed: %s', 'wp-vault'), size_format($compressed_size))); ?></span>
                                                 </div>
                                                 <div style="color: #46b450; font-weight: bold; margin-top: 3px;">
-                                                    <?php echo esc_html(sprintf(
-                                                        __('Saved: %s (%s%%)', 'wp-vault'),
+                                                    <?php
+                                                    /* translators: 1: Space saved, 2: Compression ratio percentage */
+                                                    echo esc_html(sprintf(
+                                                        __('Saved: %1$s (%2$s%%)', 'wp-vault'),
                                                         size_format($optimization_status['space_saved']),
                                                         number_format($optimization_status['compression_ratio'], 1)
-                                                    )); ?>
+                                                    ));
+                                                    ?>
                                                 </div>
                                             <?php elseif ($file_size > 0): ?>
                                                 <div style="margin-top: 5px; color: #666;">
+                                                    <?php /* translators: %s: File size */ ?>
                                                     <?php echo esc_html(sprintf(__('Size: %s', 'wp-vault'), size_format($file_size))); ?>
                                                 </div>
                                             <?php endif; ?>
                                             <?php if ($width > 0 && $height > 0): ?>
-                                                <div><?php echo esc_html(sprintf(__('Dimensions: %dx%d', 'wp-vault'), $width, $height)); ?>
+                                                <div>
+                                                    <?php /* translators: 1: Image width, 2: Image height */ ?>
+                                                    <?php echo esc_html(sprintf(__('Dimensions: %1$dx%2$d', 'wp-vault'), $width, $height)); ?>
                                                 </div>
                                             <?php endif; ?>
-                                            <div><?php echo esc_html(sprintf(__('Uploaded: %s', 'wp-vault'), $upload_date)); ?></div>
+                                            <div>
+                                                <?php /* translators: %s: Upload date */ ?>
+                                                <?php echo esc_html(sprintf(__('Uploaded: %s', 'wp-vault'), $upload_date)); ?>
+                                            </div>
                                             <div style="margin-top: 10px; display: flex; gap: 5px;">
                                                 <button type="button" class="button button-small wpv-optimize-single-btn"
                                                     data-attachment-id="<?php echo esc_attr($attachment_id); ?>"

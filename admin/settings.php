@@ -194,17 +194,14 @@ function wpvault_display_settings_page()
                 <h2><?php esc_html_e('API Configuration', 'wp-vault'); ?></h2>
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><label for="api_endpoint"><?php esc_html_e('API Endpoint', 'wp-vault'); ?></label>
+                        <th scope="row"><label for="api_endpoint"><?php esc_html_e('Cloud URL', 'wp-vault'); ?></label>
                         </th>
                         <td>
                             <input type="url" name="api_endpoint" id="api_endpoint"
-                                value="<?php echo esc_attr(get_option('wpv_api_endpoint', 'http://host.docker.internal:3000')); ?>"
-                                class="regular-text">
+                                value="<?php echo esc_attr(get_option('wpv_api_endpoint', 'https://wpvault.cloud')); ?>"
+                                class="regular-text" placeholder="https://wpvault.cloud">
                             <p class="description">
-                                <strong><?php esc_html_e('Docker:', 'wp-vault'); ?></strong>
-                                http://host.docker.internal:3000<br>
-                                <strong><?php esc_html_e('Host:', 'wp-vault'); ?></strong> http://localhost:3000<br>
-                                <strong><?php esc_html_e('Production:', 'wp-vault'); ?></strong> https://api.wpvault.cloud
+                                <?php esc_html_e('The default Cloud URL connects to WPVault Cloud services. Only change this endpoint if you are using a custom version of WPVault or hosting the service yourself.', 'wp-vault'); ?>
                             </p>
                         </td>
                     </tr>
@@ -281,9 +278,10 @@ function wpvault_display_settings_page()
     </div>
 
     <script>     jQuery(document).ready(function ($) {         // Tab switching         $('.nav-tab').on('click', function (e) {             e.preventDefault();             var tab = $(this).attr('href');             $('.nav-tab').removeClass('nav-tab-active');             $(this).addClass('nav-tab-active');             $('.wpv-tab-content').hide();             $(tab).show();         });
-             // Cleanup temp files         $('#cleanup-temp-files').on('click', function () {             var $btn = $(this);             var $result = $('#cleanup-result');
-                 $btn.prop('disabled', true).text('<?php echo esc_js(esc_html__('Cleaning...', 'wp-vault')); ?>');             $result.html('');
-                 $.post(ajaxurl, {                 action: 'wpv_cleanup_temp_files',                 nonce: wpVault.nonce             }, function (response) {                 if (response.success) {                     $result.html('<span style="color:green">✓ ' + response.data.message + '</span>');                     setTimeout(function () {                         location.reload();                     }, 1500);                 } else {                     $result.html('<span style="color:red">✗ ' + (response.data.error || 'Cleanup failed') + '</span>');                 }             }).always(function () {                 $btn.prop('disabled', false).text('<?php echo esc_js(esc_html__('Clean Up Old Temp Files', 'wp-vault')); ?>');             });         });     });
+            // Cleanup temp files         $('#cleanup-temp-files').on('click', function () {             var $btn = $(this);             var $result = $('#cleanup-result');
+            $btn.prop('disabled', true).text('<?php echo esc_js(esc_html__('Cleaning...', 'wp-vault')); ?>'); $result.html('');
+            $.post(ajaxurl, { action: 'wpv_cleanup_temp_files', nonce: wpVault.nonce }, function (response) { if (response.success) { $result.html('<span style="color:green">✓ ' + response.data.message + '</span>'); setTimeout(function () { location.reload(); }, 1500); } else { $result.html('<span style="color:red">✗ ' + (response.data.error || 'Cleanup failed') + '</span>'); } }).always(function () { $btn.prop('disabled', false).text('<?php echo esc_js(esc_html__('Clean Up Old Temp Files', 'wp-vault')); ?>'); });
+        });     });
     </script>
     <?php
 }

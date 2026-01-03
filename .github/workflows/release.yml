@@ -1,0 +1,91 @@
+name: Create Release
+
+on:
+    push:
+        tags:
+            - "v*" # Triggers on tags starting with 'v' (e.g., v1.0.0, v1.2.3)
+            - "*" # Also triggers on any tag
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write # Required to create releases
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Fetch all history for tags
+
+            - name: Get tag name
+              id: tag
+              run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+            - name: Get version from tag
+              id: version
+              run: |
+                  VERSION=${GITHUB_REF#refs/tags/}
+                  # Remove 'v' prefix if present
+                  VERSION=${VERSION#v}
+                  echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+                  echo "Version: $VERSION"
+
+            - name: Create plugin zip
+              run: |
+                  # Create zip file excluding development files
+                  # WordPress plugins should have files at zip root level
+                  zip -r wp-vault-plugin-${{ steps.version.outputs.VERSION }}.zip . \
+                    -x "*.git*" \
+                    -x ".github/*" \
+                    -x "*.DS_Store" \
+                    -x "*node_modules/*" \
+                    -x "*.log" \
+                    -x "temp/*" \
+                    -x "*.zip" \
+                    -x ".gitignore" \
+                    -x "CONTRIBUTING.md"
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: ${{ steps.tag.outputs.TAG_NAME }}
+                  name: Release ${{ steps.version.outputs.VERSION }}
+                  body: |
+                      ## WPVault Backup & Optimization ${{ steps.version.outputs.VERSION }}
+
+                      ### Installation
+
+                      1. Download the `wp-vault-plugin-${{ steps.version.outputs.VERSION }}.zip` file
+                      2. Go to WordPress Admin → Plugins → Add New → Upload Plugin
+                      3. Upload the zip file and activate
+
+                      ### Changes
+
+                      See [CHANGELOG](https://github.com/wpvault-cloud/wp-vault-plugin/blob/main/CHANGELOG.md) for detailed changes.
+
+                      ### Requirements
+
+                      - WordPress 5.8 or higher
+                      - PHP 7.4 or higher
+
+                      ### Support
+
+                      - [Documentation](https://wpvault.cloud/docs)
+                      - [Discord Community](https://discord.gg/3PqKgZQWU3)
+                      - [GitHub Issues](https://github.com/wpvault-cloud/wp-vault-plugin/issues)
+                  files: |
+                      wp-vault-plugin-${{ steps.version.outputs.VERSION }}.zip
+                  draft: false
+                  prerelease: false
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Release Summary
+              run: |
+                  echo "## Release Created Successfully 🎉" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Tag**: ${{ steps.tag.outputs.TAG_NAME }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Version**: ${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Release**: [View on GitHub](https://github.com/wpvault-cloud/wp-vault-plugin/releases/tag/${{ steps.tag.outputs.TAG_NAME }})" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Download**: wp-vault-plugin-${{ steps.version.outputs.VERSION }}.zip" >> $GITHUB_STEP_SUMMARY

@@ -30,12 +30,16 @@ function wpvault_display_dashboard_page()
         } elseif ($page === 'wp-vault-storage' || $page === 'wp-vault-settings') {
             // Settings menu item now points to Storage tab
             $current_tab = 'storage';
+        } elseif ($page === 'wp-vault-optimization') {
+            $current_tab = 'optimization';
+        } elseif ($page === 'wp-vault-community-support') {
+            $current_tab = 'community-support';
         } else {
             $current_tab = 'dashboard'; // Default to dashboard
         }
     }
 
-    $valid_tabs = array('dashboard', 'backups', 'restores', 'schedule', 'logs', 'optimization', 'features', 'settings', 'storage');
+    $valid_tabs = array('dashboard', 'backups', 'restores', 'schedule', 'logs', 'optimization', 'features', 'settings', 'storage', 'community-support');
     if (!in_array($current_tab, $valid_tabs)) {
         $current_tab = 'dashboard';
     }
@@ -96,6 +100,10 @@ function wpvault_display_dashboard_page()
                 class="wpv-tab <?php echo $current_tab === 'storage' ? 'wpv-tab-active' : ''; ?>">
                 <?php esc_html_e('Storage', 'wp-vault'); ?>
             </a>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=wp-vault&tab=community-support')); ?>"
+                class="wpv-tab <?php echo $current_tab === 'community-support' ? 'wpv-tab-active' : ''; ?>">
+                <?php esc_html_e('Community & Support', 'wp-vault'); ?>
+            </a>
         </div>
 
         <!-- Main Content Area -->
@@ -131,6 +139,9 @@ function wpvault_display_dashboard_page()
                         break;
                     case 'storage':
                         include WP_VAULT_PLUGIN_DIR . 'admin/partials/tab-storage.php';
+                        break;
+                    case 'community-support':
+                        include WP_VAULT_PLUGIN_DIR . 'admin/partials/tab-community-support.php';
                         break;
                     default:
                         include WP_VAULT_PLUGIN_DIR . 'admin/partials/tab-dashboard.php';

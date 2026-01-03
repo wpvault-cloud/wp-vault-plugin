@@ -20,7 +20,7 @@ function wpvault_display_storage_tab()
     require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
 
     $registered = (bool) get_option('wpv_site_id');
-    $api_endpoint = get_option('wpv_api_endpoint', 'http://host.docker.internal:3000');
+    $api_endpoint = get_option('wpv_api_endpoint', 'https://wpvault.cloud');
     $api = new \WP_Vault\WP_Vault_API();
 
     // Fetch storage config from SaaS
