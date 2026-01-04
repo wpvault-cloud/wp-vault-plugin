@@ -200,6 +200,41 @@ function wpvault_display_dashboard_page()
             <p style="color:#666; margin-top:5px;">
                 <?php esc_html_e('Select what you want to restore and configure restore options.', 'wp-vault'); ?>
             </p>
+
+            <?php
+            // Display compression mode info in restore modal
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault.php';
+            $compression_info = \WP_Vault\WP_Vault::get_compression_mode_info();
+            ?>
+            <div style="background:#f6f7f7; border:1px solid #c3c4c7; border-radius:4px; padding:12px; margin:15px 0;">
+                <div style="display:flex; align-items:center; margin-bottom:5px;">
+                    <strong style="font-size:13px;"><?php esc_html_e('Compression Mode', 'wp-vault'); ?></strong>
+                    <?php if ($compression_info['available']): ?>
+                        <span style="color:#00a32a; margin-left:8px;"
+                            title="<?php esc_attr_e('Available', 'wp-vault'); ?>">✓</span>
+                    <?php else: ?>
+                        <span style="color:#d63638; margin-left:8px;"
+                            title="<?php esc_attr_e('Not Available', 'wp-vault'); ?>">✗</span>
+                    <?php endif; ?>
+                </div>
+                <p style="margin:5px 0; font-size:12px; color:#646970;">
+                    <strong><?php echo esc_html($compression_info['label']); ?></strong>
+                </p>
+                <p style="margin:5px 0; font-size:11px; color:#646970;">
+                    <?php echo esc_html($compression_info['description']); ?>
+                </p>
+                <?php if (empty($compression_info['mode'])): ?>
+                    <a href="<?php echo esc_url($compression_info['settings_url']); ?>"
+                        style="font-size:11px; margin-top:5px; display:inline-block; color:#2271b1;">
+                        <?php esc_html_e('Select compression mode in Settings →', 'wp-vault'); ?>
+                    </a>
+                <?php else: ?>
+                    <a href="<?php echo esc_url($compression_info['settings_url']); ?>"
+                        style="font-size:11px; margin-top:5px; display:inline-block; color:#2271b1;">
+                        <?php esc_html_e('Change in Settings →', 'wp-vault'); ?>
+                    </a>
+                <?php endif; ?>
+            </div>
             <div style="margin:20px 0;">
                 <h4 style="margin-bottom:10px;"><?php esc_html_e('Components to Restore', 'wp-vault'); ?></h4>
                 <div style="margin-left:10px;">

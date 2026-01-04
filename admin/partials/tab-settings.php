@@ -67,11 +67,20 @@ wpvault_handle_settings_tab_form();
  */
 function wpvault_display_settings_tab()
 {
+    require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
+    
     $primary_storage = get_option('wpv_primary_storage_type', 'gcs');
     $storage_type = get_option('wpv_storage_type', $primary_storage);
     $registered = (bool) get_option('wpv_site_id');
-    $compression_mode = get_option('wpv_compression_mode', 'fast');
+    $compression_mode = get_option('wpv_compression_mode', '');
     $file_split_size = get_option('wpv_file_split_size', 200);
+    
+    // Check compression mode availability
+    $fast_availability = \WP_Vault\WP_Vault_Compression_Checker::check_fast_mode();
+    $legacy_availability = \WP_Vault\WP_Vault_Compression_Checker::check_legacy_mode();
+    
+    // Check if activation redirect is needed
+    $compression_mode_required = isset($_GET['compression_mode_required']) && $_GET['compression_mode_required'] === 'true';
     ?>
 
     <div class="wpv-tab-content" id="wpv-tab-settings">
@@ -79,6 +88,14 @@ function wpvault_display_settings_tab()
         // Show success message if redirected after save
         if (isset($_GET['settings-updated']) && $_GET['settings-updated'] === 'true') {
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Settings saved successfully!', 'wp-vault') . '</p></div>';
+        }
+        
+        // Show activation message if compression mode is required
+        if ($compression_mode_required && empty($compression_mode)) {
+            echo '<div class="notice notice-warning is-dismissible" style="border-left-color: #d63638;">';
+            echo '<p><strong>' . esc_html__('Compression Mode Required', 'wp-vault') . '</strong></p>';
+            echo '<p>' . esc_html__('Please select a compression mode below to enable backups and restores.', 'wp-vault') . '</p>';
+            echo '</div>';
         }
         ?>
         <!-- General Settings -->
@@ -161,26 +178,100 @@ function wpvault_display_settings_tab()
                 </div>
 
                 <!-- Backup Settings -->
-                <div class="wpv-section">
+                <div class="wpv-section" id="compression-mode-section" <?php echo $compression_mode_required && empty($compression_mode) ? 'style="border: 2px solid #d63638; padding: 15px; border-radius: 4px; background: #fff5f5;"' : ''; ?>>
                     <h2><?php esc_html_e('Backup Configuration', 'wp-vault'); ?></h2>
 
                     <table class="form-table">
                         <tr>
-                            <th scope="row"><label
-                                    for="compression_mode"><?php esc_html_e('Compression Mode', 'wp-vault'); ?></label>
-                            </th>
+                            <th scope="row"><?php esc_html_e('Compression Mode', 'wp-vault'); ?></th>
                             <td>
-                                <select name="compression_mode" id="compression_mode">
-                                    <option value="fast" <?php selected($compression_mode, 'fast'); ?>>
-                                        <?php esc_html_e('Fast (tar and gz)', 'wp-vault'); ?>
-                                    </option>
-                                    <option value="legacy" <?php selected($compression_mode, 'legacy'); ?>>
-                                        <?php esc_html_e('Legacy (ZIP using PHP native)', 'wp-vault'); ?>
-                                    </option>
-                                </select>
-                                <p class="description">
-                                    <?php esc_html_e('Fast mode uses system tar/gzip commands for better performance. Legacy mode uses PHP ZIP for maximum portability on restricted hosting.', 'wp-vault'); ?>
+                                <fieldset class="wpv-compression-mode-fieldset">
+                                    <legend class="screen-reader-text"><?php esc_html_e('Compression Mode', 'wp-vault'); ?></legend>
+                                    
+                                    <?php if ($fast_availability['available'] && empty($compression_mode)): ?>
+                                        <div class="wpv-notice wpv-notice-info" style="margin-bottom: 15px; padding: 12px; background: #f0f6fc; border-left: 4px solid #2271b1;">
+                                            <p style="margin: 0;">
+                                                <strong><?php esc_html_e('Recommended:', 'wp-vault'); ?></strong>
+                                                <?php esc_html_e('Fast mode is available on your system and provides better performance. We recommend selecting it.', 'wp-vault'); ?>
+                                            </p>
+                                        </div>
+                                    <?php endif; ?>
+                                    
+                                    <div class="wpv-compression-mode-option" style="margin-bottom: 20px; padding: 15px; border: 1px solid #c3c4c7; border-radius: 4px; background: #fff;">
+                                        <label style="display: flex; align-items: flex-start; cursor: <?php echo $fast_availability['available'] ? 'pointer' : 'not-allowed'; ?>;">
+                                            <input type="radio" name="compression_mode" value="fast" 
+                                                <?php checked($compression_mode, 'fast'); ?>
+                                                <?php disabled(!$fast_availability['available']); ?>
+                                                style="margin-right: 10px; margin-top: 3px;">
+                                            <div style="flex: 1;">
+                                                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                                                    <strong><?php esc_html_e('Fast (tar and gz)', 'wp-vault'); ?></strong>
+                                                    <?php if ($fast_availability['available']): ?>
+                                                        <span style="color: #00a32a; margin-left: 8px;" title="<?php esc_attr_e('Available', 'wp-vault'); ?>">✓</span>
+                                                    <?php else: ?>
+                                                        <span style="color: #d63638; margin-left: 8px;" title="<?php esc_attr_e('Not Available', 'wp-vault'); ?>">✗</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <p class="description" style="margin: 5px 0;">
+                                                    <?php esc_html_e('Uses system tar/gzip commands for better performance and lower memory usage.', 'wp-vault'); ?>
+                                                </p>
+                                                <div style="margin-top: 8px; font-size: 12px;">
+                                                    <strong><?php esc_html_e('Requirements:', 'wp-vault'); ?></strong>
+                                                    <ul style="margin: 5px 0 0 20px; list-style: disc;">
+                                                        <?php foreach ($fast_availability['requirements'] as $req): ?>
+                                                            <li style="color: <?php echo $req['available'] ? '#00a32a' : '#d63638'; ?>;">
+                                                                <?php echo esc_html($req['name']); ?>: 
+                                                                <span><?php echo esc_html($req['reason']); ?></span>
+                                                            </li>
+                                                        <?php endforeach; ?>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="wpv-compression-mode-option" style="margin-bottom: 20px; padding: 15px; border: 1px solid #c3c4c7; border-radius: 4px; background: #fff;">
+                                        <label style="display: flex; align-items: flex-start; cursor: <?php echo $legacy_availability['available'] ? 'pointer' : 'not-allowed'; ?>;">
+                                            <input type="radio" name="compression_mode" value="legacy" 
+                                                <?php checked($compression_mode, 'legacy'); ?>
+                                                <?php disabled(!$legacy_availability['available']); ?>
+                                                style="margin-right: 10px; margin-top: 3px;">
+                                            <div style="flex: 1;">
+                                                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                                                    <strong><?php esc_html_e('Legacy (ZIP using PHP native)', 'wp-vault'); ?></strong>
+                                                    <?php if ($legacy_availability['available']): ?>
+                                                        <span style="color: #00a32a; margin-left: 8px;" title="<?php esc_attr_e('Available', 'wp-vault'); ?>">✓</span>
+                                                    <?php else: ?>
+                                                        <span style="color: #d63638; margin-left: 8px;" title="<?php esc_attr_e('Not Available', 'wp-vault'); ?>">✗</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <p class="description" style="margin: 5px 0;">
+                                                    <?php esc_html_e('Uses PHP ZIP extension for maximum portability on restricted hosting environments.', 'wp-vault'); ?>
+                                                </p>
+                                                <div style="margin-top: 8px; font-size: 12px;">
+                                                    <strong><?php esc_html_e('Requirements:', 'wp-vault'); ?></strong>
+                                                    <ul style="margin: 5px 0 0 20px; list-style: disc;">
+                                                        <?php foreach ($legacy_availability['requirements'] as $req): ?>
+                                                            <li style="color: <?php echo $req['available'] ? '#00a32a' : '#d63638'; ?>;">
+                                                                <?php echo esc_html($req['name']); ?>: 
+                                                                <span><?php echo esc_html($req['reason']); ?></span>
+                                                            </li>
+                                                        <?php endforeach; ?>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                    
+                                    <?php if (!$fast_availability['available'] && !$legacy_availability['available']): ?>
+                                        <div class="wpv-notice wpv-notice-error" style="margin-top: 15px; padding: 12px; background: #fcf0f1; border-left: 4px solid #d63638;">
+                                            <p style="margin: 0;">
+                                                <strong><?php esc_html_e('No Compression Mode Available', 'wp-vault'); ?></strong><br>
+                                                <?php esc_html_e('Neither compression mode is available on your system. Please contact your hosting provider to enable either tar/gzip commands or PHP ZipArchive extension.', 'wp-vault'); ?>
                                 </p>
+                                        </div>
+                                    <?php endif; ?>
+                                </fieldset>
                             </td>
                         </tr>
                         <tr>
@@ -229,6 +320,8 @@ function wpvault_display_settings_tab()
                 </p>
             </form>
         </div>
+
+    </div>
         <?php
 }
 

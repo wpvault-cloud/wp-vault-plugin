@@ -18,9 +18,13 @@ if (!defined('ABSPATH')) {
 function wpvault_display_backups_tab()
 {
     require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+    require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault.php';
 
     $api = new \WP_Vault\WP_Vault_API();
     $registered = (bool) get_option('wpv_site_id');
+
+    // Get compression mode info
+    $compression_info = \WP_Vault\WP_Vault::get_compression_mode_info();
 
     // Get backups from SaaS API
     $backups_result = $api->get_backups();
@@ -271,42 +275,206 @@ function wpvault_display_backups_tab()
     ?>
 
     <div class="wpv-tab-content" id="wpv-tab-backups">
-        <!-- Backup Controls Section -->
+        <!-- Backup Controls Section with Two-Column Layout -->
         <div class="wpv-section">
             <h2><?php esc_html_e('Back Up Manually', 'wp-vault'); ?></h2>
 
-            <div class="wpv-backup-controls">
-                <div class="wpv-backup-options">
-                    <label class="wpv-radio-option">
-                        <input type="radio" name="backup_content" value="full" checked>
-                        <span><?php esc_html_e('Database + Files (WordPress Files)', 'wp-vault'); ?></span>
-                    </label>
-                    <label class="wpv-radio-option">
-                        <input type="radio" name="backup_content" value="files">
-                        <span><?php esc_html_e('WordPress Files (Exclude Database)', 'wp-vault'); ?></span>
-                    </label>
-                    <label class="wpv-radio-option">
-                        <input type="radio" name="backup_content" value="database">
-                        <span><?php esc_html_e('Only Database', 'wp-vault'); ?></span>
-                    </label>
-                    <label class="wpv-radio-option">
-                        <input type="radio" name="backup_content" value="incremental">
-                        <span><?php esc_html_e('Incremental Backup', 'wp-vault'); ?> <span
-                                class="wpv-badge wpv-badge-pro">Pro</span></span>
-                    </label>
+            <div class="wpv-backup-layout"
+                style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+                <!-- Left Column: Backup Options -->
+                <div class="wpv-backup-options-column" style="min-width: 0;">
+                    <h3 style="margin-top: 0;"><?php esc_html_e('What to Backup', 'wp-vault'); ?></h3>
+                    <div class="wpv-backup-controls">
+                        <div class="wpv-backup-options">
+                            <label class="wpv-radio-option">
+                                <input type="radio" name="backup_content" value="full" checked>
+                                <span><?php esc_html_e('Database + Files (WordPress Files)', 'wp-vault'); ?></span>
+                            </label>
+                            <label class="wpv-radio-option">
+                                <input type="radio" name="backup_content" value="files">
+                                <span><?php esc_html_e('WordPress Files (Exclude Database)', 'wp-vault'); ?></span>
+                            </label>
+                            <label class="wpv-radio-option">
+                                <input type="radio" name="backup_content" value="database">
+                                <span><?php esc_html_e('Only Database', 'wp-vault'); ?></span>
+                            </label>
+                            <label class="wpv-radio-option">
+                                <input type="radio" name="backup_content" value="incremental">
+                                <span><?php esc_html_e('Incremental Backup', 'wp-vault'); ?> <span
+                                        class="wpv-badge wpv-badge-pro">Pro</span></span>
+                            </label>
+                        </div>
+
+                        <div class="wpv-backup-actions" style="margin-top: 20px;">
+                            <button id="wpv-backup-now" class="button button-primary button-large">
+                                <span class="dashicons dashicons-cloud-upload"></span>
+                                <?php esc_html_e('Backup Now', 'wp-vault'); ?>
+                            </button>
+                        </div>
+                    </div>
+
+                    <p class="wpv-tip" style="margin-top: 15px; font-size: 13px; color: #646970;">
+                        <?php esc_html_e('Tip: The settings are only for manual backup, which won\'t affect schedule settings.', 'wp-vault'); ?>
+                    </p>
                 </div>
 
-                <div class="wpv-backup-actions">
-                    <button id="wpv-backup-now" class="button button-primary button-large">
-                        <span class="dashicons dashicons-cloud-upload"></span>
-                        <?php esc_html_e('Backup Now', 'wp-vault'); ?>
-                    </button>
+                <!-- Right Column: Information Panel -->
+                <div class="wpv-backup-info-column" style="min-width: 0;">
+                    <h3 style="margin-top: 0;"><?php esc_html_e('Backup Information', 'wp-vault'); ?></h3>
+
+                    <?php
+                    // Get last backup info
+                    $last_backup = !empty($backups) ? $backups[0] : null;
+                    $total_backups = count($backups);
+                    $total_size = 0;
+                    foreach ($backups as $backup) {
+                        $total_size += isset($backup['total_size']) ? $backup['total_size'] : 0;
+                    }
+                    $file_split_size = get_option('wpv_file_split_size', 200);
+                    ?>
+
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <!-- Compression Mode Card -->
+                        <div
+                            style="background: #fff; border: 1px solid #c3c4c7; border-radius: 6px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <div
+                                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span class="dashicons dashicons-performance"
+                                        style="color: #2271b1; font-size: 18px; width: 18px; height: 18px;"></span>
+                                    <strong
+                                        style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #50575e;"><?php esc_html_e('Compression Mode', 'wp-vault'); ?></strong>
+                                </div>
+                                <?php if ($compression_info['available']): ?>
+                                    <span
+                                        style="background: #00a32a; color: #fff; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                        <span>✓</span> <?php esc_html_e('Available', 'wp-vault'); ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span
+                                        style="background: #d63638; color: #fff; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                        <span>✗</span> <?php esc_html_e('Unavailable', 'wp-vault'); ?>
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+                            <div style="background: #f6f7f7; border-radius: 4px; padding: 12px; margin-bottom: 10px;">
+                                <div style="font-size: 15px; font-weight: 600; color: #1d2327; margin-bottom: 4px;">
+                                    <?php echo esc_html($compression_info['label']); ?>
+                                </div>
+                                <div style="font-size: 12px; color: #646970; line-height: 1.5;">
+                                    <?php echo esc_html($compression_info['description']); ?>
+                                </div>
+                            </div>
+                            <a href="<?php echo esc_url($compression_info['settings_url']); ?>"
+                                style="font-size: 12px; color: #2271b1; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                                <?php esc_html_e('Change in Settings', 'wp-vault'); ?> <span
+                                    class="dashicons dashicons-arrow-right-alt2"
+                                    style="font-size: 14px; width: 14px; height: 14px;"></span>
+                            </a>
+                        </div>
+
+                        <!-- Last Backup and Statistics in Single Row -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <!-- Last Backup Card -->
+                            <div
+                                style="background: #fff; border: 1px solid #c3c4c7; border-radius: 6px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                    <span class="dashicons dashicons-clock"
+                                        style="color: #2271b1; font-size: 18px; width: 18px; height: 18px;"></span>
+                                    <strong
+                                        style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #50575e;"><?php esc_html_e('Last Backup', 'wp-vault'); ?></strong>
+                                </div>
+                                <?php if ($last_backup): ?>
+                                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                                        <div style="font-size: 16px; font-weight: 600; color: #1d2327;">
+                                            <?php echo esc_html(gmdate('M j, Y g:i a', strtotime($last_backup['created_at']))); ?>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                            <span
+                                                style="background: #f0f6fc; color: #0969da; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                                <span class="dashicons dashicons-database"
+                                                    style="font-size: 14px; width: 14px; height: 14px;"></span>
+                                                <?php echo esc_html(size_format($last_backup['total_size'])); ?>
+                                            </span>
+                                            <span
+                                                style="background: #fff3cd; color: #856404; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                                <span class="dashicons dashicons-admin-generic"
+                                                    style="font-size: 14px; width: 14px; height: 14px;"></span>
+                                                <?php echo esc_html(ucfirst($last_backup['backup_type'])); ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <div style="background: #f6f7f7; border-radius: 4px; padding: 12px; text-align: center;">
+                                        <span class="dashicons dashicons-info-outline"
+                                            style="color: #646970; font-size: 20px; width: 20px; height: 20px; display: block; margin: 0 auto 8px;"></span>
+                                        <div style="font-size: 13px; color: #646970;">
+                                            <?php esc_html_e('No backups yet', 'wp-vault'); ?>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Stats Card (Total Backups & Storage) -->
+                            <div
+                                style="background: linear-gradient(135deg, #f6f7f7 0%, #ffffff 100%); border: 1px solid #c3c4c7; border-radius: 6px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                    <span class="dashicons dashicons-chart-bar"
+                                        style="color: #2271b1; font-size: 18px; width: 18px; height: 18px;"></span>
+                                    <strong
+                                        style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #50575e;"><?php esc_html_e('Statistics', 'wp-vault'); ?></strong>
+                                </div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                    <div
+                                        style="background: #fff; border-radius: 4px; padding: 12px; text-align: center; border: 1px solid #e2e4e7;">
+                                        <div style="font-size: 24px; font-weight: 700; color: #1d2327; margin-bottom: 4px;">
+                                            <?php echo esc_html($total_backups); ?>
+                                        </div>
+                                        <div
+                                            style="font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            <?php esc_html_e('Backups', 'wp-vault'); ?>
+                                        </div>
+                                    </div>
+                                    <div
+                                        style="background: #fff; border-radius: 4px; padding: 12px; text-align: center; border: 1px solid #e2e4e7;">
+                                        <div
+                                            style="font-size: 20px; font-weight: 700; color: #1d2327; margin-bottom: 4px; line-height: 1.2;">
+                                            <?php echo esc_html(size_format($total_size)); ?>
+                                        </div>
+                                        <div
+                                            style="font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            <?php esc_html_e('Storage', 'wp-vault'); ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- File Split Size Card -->
+                        <!--                         <div
+                            style="background: #fff; border: 1px solid #c3c4c7; border-radius: 6px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                                <span class="dashicons dashicons-admin-settings"
+                                    style="color: #2271b1; font-size: 18px; width: 18px; height: 18px;"></span>
+                                <strong
+                                    style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #50575e;"><?php esc_html_e('File Split Size', 'wp-vault'); ?></strong>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div
+                                    style="background: linear-gradient(135deg, #2271b1 0%, #1d4ed8 100%); color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 18px; font-weight: 700; min-width: 70px; text-align: center;">
+                                    <?php echo esc_html($file_split_size); ?>
+                                    <div style="font-size: 11px; font-weight: 500; opacity: 0.9; margin-top: 2px;">MB</div>
+                                </div>
+                                <div style="flex: 1;">
+                                    <div style="font-size: 12px; color: #646970; line-height: 1.5;">
+                                        <?php esc_html_e('Backups will be split when size exceeds this limit', 'wp-vault'); ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </div> -->
+                    </div>
                 </div>
             </div>
-
-            <p class="wpv-tip">
-                <?php esc_html_e('Tip: The settings are only for manual backup, which won\'t affect schedule settings.', 'wp-vault'); ?>
-            </p>
         </div>
 
         <!-- Backups List Section -->

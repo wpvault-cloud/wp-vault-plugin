@@ -257,6 +257,10 @@ class WP_Vault_Activator
         add_option('wpv_backup_schedule', 'daily');
         add_option('wpv_incremental_enabled', 0);
 
+        // Do NOT set default compression mode - user must select it
+        // Set transient for activation redirect
+        set_transient('wpv_activation_redirect', true, 30);
+
         // Schedule heartbeat
         if (!wp_next_scheduled('wpv_heartbeat')) {
             wp_schedule_event(time(), 'twicedaily', 'wpv_heartbeat');

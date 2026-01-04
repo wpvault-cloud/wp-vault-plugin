@@ -64,8 +64,8 @@ class WP_Vault_Backup_Engine
         require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-temp-manager.php';
         $this->temp_manager = new WP_Vault_Temp_Manager();
 
-        // Get compression mode (default: 'fast')
-        $this->compression_mode = get_option('wpv_compression_mode', 'fast');
+        // Get compression mode (default: empty - must be selected by user)
+        $this->compression_mode = get_option('wpv_compression_mode', '');
 
         // Initialize file-based logging
         require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-log.php';
@@ -140,6 +140,32 @@ class WP_Vault_Backup_Engine
         $this->log->write_log('Peak Memory Usage: ' . size_format(memory_get_peak_usage(true)), 'info');
 
         try {
+            // Validate compression mode is selected
+            if (empty($this->compression_mode)) {
+                $error_msg = esc_html__('Compression mode not selected. Please configure it in Settings before creating backups.', 'wp-vault');
+                $this->log->write_log($error_msg, 'error');
+                $this->log_progress($error_msg, 0);
+                throw new \Exception($error_msg);
+            }
+
+            // Validate compression mode availability
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
+            $availability = WP_Vault_Compression_Checker::get_all_availability();
+
+            if ($this->compression_mode === 'fast' && !$availability['fast']['available']) {
+                $error_msg = esc_html__('Fast compression mode is not available on this system. Please select Legacy mode in Settings.', 'wp-vault');
+                $this->log->write_log($error_msg, 'error');
+                $this->log_progress($error_msg, 0);
+                throw new \Exception($error_msg);
+            }
+
+            if ($this->compression_mode === 'legacy' && !$availability['legacy']['available']) {
+                $error_msg = esc_html__('Legacy compression mode is not available on this system. Please select Fast mode in Settings or contact your hosting provider.', 'wp-vault');
+                $this->log->write_log($error_msg, 'error');
+                $this->log_progress($error_msg, 0);
+                throw new \Exception($error_msg);
+            }
+
             $this->log_progress('Starting backup...', 0);
             $this->log->write_log('Step 1: Backup initialization complete', 'info');
 

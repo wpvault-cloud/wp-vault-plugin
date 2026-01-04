@@ -506,6 +506,43 @@ class WP_Vault
     }
 
     /**
+     * Get compression mode display information
+     * 
+     * @return array Array with mode, label, description, available, and settings_url
+     */
+    public static function get_compression_mode_info()
+    {
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
+        
+        $mode = get_option('wpv_compression_mode', '');
+        $availability = WP_Vault_Compression_Checker::get_all_availability();
+        
+        $info = array(
+            'mode' => $mode,
+            'label' => '',
+            'description' => '',
+            'available' => false,
+            'settings_url' => admin_url('admin.php?page=wp-vault&tab=settings'),
+        );
+        
+        if ($mode === 'fast') {
+            $info['label'] = __('Fast (tar and gz)', 'wp-vault');
+            $info['description'] = __('Uses system tar/gzip commands for better performance and lower memory usage.', 'wp-vault');
+            $info['available'] = $availability['fast']['available'];
+        } elseif ($mode === 'legacy') {
+            $info['label'] = __('Legacy (ZIP using PHP native)', 'wp-vault');
+            $info['description'] = __('Uses PHP ZIP extension for maximum portability on restricted hosting environments.', 'wp-vault');
+            $info['available'] = $availability['legacy']['available'];
+        } else {
+            $info['label'] = __('Not Selected', 'wp-vault');
+            $info['description'] = __('Please select a compression mode in Settings to enable backups and restores.', 'wp-vault');
+            $info['available'] = false;
+        }
+        
+        return $info;
+    }
+
+    /**
      * Load text domain
      * Note: WordPress.org automatically loads text domains, but we keep this for backward compatibility
      */
@@ -702,6 +739,20 @@ class WP_Vault
             if (isset($_POST['compression_mode'])) {
                 $wpvault_compression_mode = sanitize_text_field(wp_unslash($_POST['compression_mode']));
                 if (in_array($wpvault_compression_mode, array('fast', 'legacy'))) {
+                    // Validate availability before saving
+                    require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
+                    $availability = WP_Vault_Compression_Checker::get_all_availability();
+                    
+                    if ($wpvault_compression_mode === 'fast' && !$availability['fast']['available']) {
+                        wp_die(esc_html__('Fast compression mode is not available on this system. Please select Legacy mode.', 'wp-vault'), esc_html__('Error', 'wp-vault'), array('back_link' => true));
+                        return;
+                    }
+                    
+                    if ($wpvault_compression_mode === 'legacy' && !$availability['legacy']['available']) {
+                        wp_die(esc_html__('Legacy compression mode is not available on this system. Please select Fast mode or contact your hosting provider.', 'wp-vault'), esc_html__('Error', 'wp-vault'), array('back_link' => true));
+                        return;
+                    }
+                    
                     update_option('wpv_compression_mode', $wpvault_compression_mode);
                     error_log('[WP Vault] Compression Mode: ' . $wpvault_compression_mode);
                 }
@@ -770,6 +821,71 @@ class WP_Vault
         // Use JavaScript redirect as fallback since headers may already be sent
         echo '<script>window.location.href = "' . esc_js(esc_url(admin_url('admin.php?page=wp-vault&tab=' . $tab))) . '";</script>';
         exit;
+    }
+
+    /**
+     * Check for activation redirect and redirect to settings if needed
+     */
+    public function check_activation_redirect()
+    {
+        // Only redirect if transient exists and user is admin
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Check if we should redirect
+        if (get_transient('wpv_activation_redirect')) {
+            // Delete the transient so we don't redirect again
+            delete_transient('wpv_activation_redirect');
+
+            // Don't redirect if already on settings page or if compression mode is already set
+            $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+            $compression_mode = get_option('wpv_compression_mode', '');
+            
+            if ($page !== 'wp-vault' && empty($compression_mode)) {
+                // Redirect to settings tab with compression mode required parameter
+                wp_safe_redirect(admin_url('admin.php?page=wp-vault&tab=settings&compression_mode_required=true'));
+                exit;
+            }
+        }
+    }
+
+    /**
+     * Show global admin notice if compression mode is not selected
+     */
+    public function show_compression_mode_notice()
+    {
+        // Only show to admins
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Don't show on settings page (it has its own message)
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        $tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : '';
+        
+        if ($page === 'wp-vault' && $tab === 'settings') {
+            return;
+        }
+
+        // Check if compression mode is set
+        $compression_mode = get_option('wpv_compression_mode', '');
+        if (!empty($compression_mode)) {
+            return;
+        }
+
+        // Show notice
+        $settings_url = admin_url('admin.php?page=wp-vault&tab=settings&compression_mode_required=true');
+        ?>
+        <div class="notice notice-warning is-dismissible">
+            <p>
+                <strong><?php esc_html_e('WP Vault: Compression Mode Required', 'wp-vault'); ?></strong>
+                <?php esc_html_e('Please select a compression mode in', 'wp-vault'); ?>
+                <a href="<?php echo esc_url($settings_url); ?>"><?php esc_html_e('Settings', 'wp-vault'); ?></a>
+                <?php esc_html_e('to enable backups and restores.', 'wp-vault'); ?>
+            </p>
+        </div>
+        <?php
     }
 
     /**

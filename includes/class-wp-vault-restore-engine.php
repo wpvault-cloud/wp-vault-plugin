@@ -107,6 +107,33 @@ class WP_Vault_Restore_Engine
     public function execute()
     {
         try {
+            // Validate compression mode is selected
+            $compression_mode = get_option('wpv_compression_mode', '');
+            if (empty($compression_mode)) {
+                $error_msg = esc_html__('Compression mode not selected. Please configure it in Settings before restoring backups.', 'wp-vault');
+                $this->log->write_log($error_msg, 'error');
+                $this->log_progress($error_msg, 0);
+                throw new \Exception($error_msg);
+            }
+
+            // Validate compression mode availability
+            require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
+            $availability = WP_Vault_Compression_Checker::get_all_availability();
+
+            if ($compression_mode === 'fast' && !$availability['fast']['available']) {
+                $error_msg = esc_html__('Fast compression mode is not available on this system. Please select Legacy mode in Settings.', 'wp-vault');
+                $this->log->write_log($error_msg, 'error');
+                $this->log_progress($error_msg, 0);
+                throw new \Exception($error_msg);
+            }
+
+            if ($compression_mode === 'legacy' && !$availability['legacy']['available']) {
+                $error_msg = esc_html__('Legacy compression mode is not available on this system. Please select Fast mode in Settings or contact your hosting provider.', 'wp-vault');
+                $this->log->write_log($error_msg, 'error');
+                $this->log_progress($error_msg, 0);
+                throw new \Exception($error_msg);
+            }
+
             $this->log->write_log('===== RESTORE STARTED =====', 'info');
             $this->log->write_log('Restore ID: ' . ($this->restore_id ?: 'N/A'), 'info');
             $this->log->write_log('Backup ID: ' . ($this->backup_id ?: 'N/A'), 'info');
