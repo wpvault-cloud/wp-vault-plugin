@@ -77,7 +77,7 @@ if (!defined('ABSPATH')) {
                         <p>
                             <?php esc_html_e('Browse our comprehensive documentation for guides, tutorials, and FAQs.', 'wp-vault'); ?>
                         </p>
-                        <a href="https://docs.wpvault.cloud" target="_blank" rel="noopener noreferrer"
+                        <a href="https://wpvault.cloud/docs" target="_blank" rel="noopener noreferrer"
                             class="button button-secondary">
                             <?php esc_html_e('View Documentation →', 'wp-vault'); ?>
                         </a>

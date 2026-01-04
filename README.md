@@ -516,7 +516,7 @@ Found a bug? Please [open an issue](https://github.com/wpvault-cloud/wp-vault-pl
 
 ### Get Help
 
-- **Documentation**: [docs.wpvault.cloud](https://docs.wpvault.cloud)
+- **Documentation**: [wpvault.cloud/docs](https://wpvault.cloud/docs)
 - **GitHub Issues**: [Report a Bug](https://github.com/wpvault-cloud/wp-vault-plugin/issues)
 - **Email Support**: support@wpvault.cloud
 - **Community Forum**: [forum.wpvault.cloud](https://forum.wpvault.cloud)
@@ -547,7 +547,7 @@ For licensing inquiries: licensing@wpvault.cloud
 ## 🔗 Links
 
 - **Website**: [wpvault.cloud](https://wpvault.cloud)
-- **Documentation**: [docs.wpvault.cloud](https://docs.wpvault.cloud)
+- **Documentation**: [wpvault.cloud/docs](https://wpvault.cloud/docs)
 - **GitHub**: [github.com/wpvault-cloud/wp-vault-plugin](https://github.com/wpvault-cloud/wp-vault-plugin)
 - **Support**: [support.wpvault.cloud](https://support.wpvault.cloud)
 
