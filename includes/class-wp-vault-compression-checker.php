@@ -154,7 +154,9 @@ class WP_Vault_Compression_Checker
             'name' => __('PHP version >= 5.2.0', 'wp-vault'),
             'available' => $php_version_ok,
             'reason' => $php_version_ok
+                /* translators: %s: PHP version number */
                 ? sprintf(__('PHP version %s meets requirement', 'wp-vault'), PHP_VERSION)
+                /* translators: %s: PHP version number */
                 : sprintf(__('PHP version %s does not meet requirement (>= 5.2.0)', 'wp-vault'), PHP_VERSION),
         );
 

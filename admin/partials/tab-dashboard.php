@@ -18,9 +18,13 @@ if (!defined('ABSPATH')) {
 function wpvault_display_dashboard_tab()
 {
     require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+    require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault.php';
 
     $api = new \WP_Vault\WP_Vault_API();
     $registered = (bool) get_option('wpv_site_id');
+
+    // Get compression mode info
+    $compression_info = \WP_Vault\WP_Vault::get_compression_mode_info();
 
     // Get backups from SaaS API
     $backups_result = $api->get_backups();
@@ -192,6 +196,27 @@ function wpvault_display_dashboard_tab()
     ?>
 
     <div class="wpv-tab-content" id="wpv-tab-dashboard">
+        <?php
+        // Show unclosable notice if compression mode is not set
+        if (empty($compression_info['mode']) || !$compression_info['available']):
+            ?>
+            <div class="notice notice-error"
+                style="margin: 0; padding: 12px 20px; border-left-color: #d63638; background: #fff5f5; border-radius: 0;">
+                <p
+                    style="margin: 0; padding: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+                    <span style="display: flex; align-items: center; gap: 10px; color: #d63638; font-weight: 600;">
+                        <span class="dashicons dashicons-warning" style="font-size: 20px; width: 20px; height: 20px;"></span>
+                        <span><?php esc_html_e('Please set the compression mode to enable backups and restores.', 'wp-vault'); ?></span>
+                    </span>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=wp-vault&tab=settings')); ?>"
+                        class="button button-primary"
+                        style="background: #d63638; border-color: #d63638; color: #fff; font-weight: 600;">
+                        <?php esc_html_e('Go to Settings', 'wp-vault'); ?>
+                    </a>
+                </p>
+            </div>
+        <?php endif; ?>
+
         <!-- Quick Actions Section -->
         <div class="wpv-section">
             <h2><?php esc_html_e('Quick Actions', 'wp-vault'); ?></h2>
@@ -213,7 +238,12 @@ function wpvault_display_dashboard_tab()
                 </div>
 
                 <div class="wpv-backup-actions">
-                    <button id="wpv-backup-now-dashboard" class="button button-primary button-large">
+                    <?php
+                    $compression_mode_selected = !empty($compression_info['mode']) && $compression_info['available'];
+                    $disabled_attr = $compression_mode_selected ? '' : 'disabled';
+                    $disabled_title = $compression_mode_selected ? '' : ' title="' . esc_attr__('Please select an available compression mode in Settings before creating backups.', 'wp-vault') . '"';
+                    ?>
+                    <button id="wpv-backup-now-dashboard" class="button button-primary button-large" <?php echo esc_attr($disabled_attr . $disabled_title); ?>>
                         <span class="dashicons dashicons-cloud-upload"></span>
                         <?php esc_html_e('Backup Now', 'wp-vault'); ?>
                     </button>

@@ -3,7 +3,7 @@
  * Plugin Name: WPVault Backup & Optimization
  * Plugin URI: https://github.com/wpvault-cloud/wp-vault-plugin
  * Description: Ultimate WordPress backup and optimization platform with multi-storage support
- * Version: 1.0.1
+ * Version: 1.0.5
  * Author: WP Vault
  * Author URI: https://wpvault.cloud
  * License: GPLv2 or later

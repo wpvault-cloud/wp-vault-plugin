@@ -391,18 +391,16 @@ function wpvault_display_optimization_tab()
                                                 $compressed_size = isset($optimization_status['compressed_size']) ? (int) $optimization_status['compressed_size'] : $file_size;
                                                 ?>
                                                 <div style="margin-top: 5px;">
-                                                    <?php /* translators: %s: Original file size */ ?>
                                                     <span
-                                                        style="color: #666;"><?php echo esc_html(sprintf(__('Original: %s', 'wp-vault'), size_format($original_size))); ?></span>
+                                                        style="color: #666;"><?php /* translators: %s: Original file size */ echo esc_html(sprintf(__('Original: %s', 'wp-vault'), size_format($original_size))); ?></span>
                                                     <span style="margin: 0 5px; color: #999;">→</span>
-                                                    <?php /* translators: %s: Compressed file size */ ?>
                                                     <span
-                                                        style="color: #2271b1; font-weight: bold;"><?php echo esc_html(sprintf(__('Compressed: %s', 'wp-vault'), size_format($compressed_size))); ?></span>
+                                                        style="color: #2271b1; font-weight: bold;"><?php /* translators: %s: Compressed file size */ echo esc_html(sprintf(__('Compressed: %s', 'wp-vault'), size_format($compressed_size))); ?></span>
                                                 </div>
                                                 <div style="color: #46b450; font-weight: bold; margin-top: 3px;">
                                                     <?php
-                                                    /* translators: 1: Space saved, 2: Compression ratio percentage */
                                                     echo esc_html(sprintf(
+                                                        /* translators: 1: Space saved, 2: Compression ratio percentage */
                                                         __('Saved: %1$s (%2$s%%)', 'wp-vault'),
                                                         size_format($optimization_status['space_saved']),
                                                         number_format($optimization_status['compression_ratio'], 1)

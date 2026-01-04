@@ -4,7 +4,7 @@ Tags: backup, restore, cloud storage, s3, google drive, optimization, image comp
 Requires at least: 5.8
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -101,6 +101,20 @@ Incremental backups only upload files that have changed since the last backup, s
 
 == Changelog ==
 
+= 1.0.5 =
+* Improved compression mode selection with radio buttons instead of dropdown
+* Added real-time availability checks for tar, gzip, and ZipArchive compression modes
+* Made compression mode selection a prerequisite for backups and restores
+* Added activation redirect to settings page for first-time setup
+* Added unclosable notice banner on backup pages when compression mode is not configured
+* Disabled "Backup Now" button when compression mode is not selected or unavailable
+* Redesigned backup page with professional two-column layout showing backup information
+* Enhanced storage page with professional card design and better visual hierarchy
+* Improved consistent 70/30 layout across all admin tabs
+* Fixed HTML structure and CSS layout issues in settings and storage pages
+* Added proper spacing between sidebar cards
+* Security and code quality improvements (proper output escaping, translators comments)
+
 = 1.0.0 =
 * Initial release
 * Multi-storage support (S3, GCS, Google Drive, FTP, SFTP)
@@ -123,6 +137,9 @@ Incremental backups only upload files that have changed since the last backup, s
 * Side-by-side image comparison modal
 
 == Upgrade Notice ==
+
+= 1.0.5 =
+This update includes important improvements to compression mode selection and UI enhancements. On first activation, you'll be redirected to Settings to configure your compression mode, which is now required for backups and restores.
 
 = 1.0.0 =
 Initial release of WP Vault.
