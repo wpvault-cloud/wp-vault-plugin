@@ -43,7 +43,8 @@ jobs:
                     -x "temp/*" \
                     -x "*.zip" \
                     -x ".gitignore" \
-                    -x "CONTRIBUTING.md"
+                    -x "CONTRIBUTING.md" \
+                    -x "screenshots/*"
 
             - name: Create Release
               uses: softprops/action-gh-release@v2
