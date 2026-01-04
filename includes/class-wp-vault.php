@@ -513,10 +513,10 @@ class WP_Vault
     public static function get_compression_mode_info()
     {
         require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
-        
+
         $mode = get_option('wpv_compression_mode', '');
         $availability = WP_Vault_Compression_Checker::get_all_availability();
-        
+
         $info = array(
             'mode' => $mode,
             'label' => '',
@@ -524,7 +524,7 @@ class WP_Vault
             'available' => false,
             'settings_url' => admin_url('admin.php?page=wp-vault&tab=settings'),
         );
-        
+
         if ($mode === 'fast') {
             $info['label'] = __('Fast (tar and gz)', 'wp-vault');
             $info['description'] = __('Uses system tar/gzip commands for better performance and lower memory usage.', 'wp-vault');
@@ -538,7 +538,7 @@ class WP_Vault
             $info['description'] = __('Please select a compression mode in Settings to enable backups and restores.', 'wp-vault');
             $info['available'] = false;
         }
-        
+
         return $info;
     }
 
@@ -742,17 +742,17 @@ class WP_Vault
                     // Validate availability before saving
                     require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-compression-checker.php';
                     $availability = WP_Vault_Compression_Checker::get_all_availability();
-                    
+
                     if ($wpvault_compression_mode === 'fast' && !$availability['fast']['available']) {
                         wp_die(esc_html__('Fast compression mode is not available on this system. Please select Legacy mode.', 'wp-vault'), esc_html__('Error', 'wp-vault'), array('back_link' => true));
                         return;
                     }
-                    
+
                     if ($wpvault_compression_mode === 'legacy' && !$availability['legacy']['available']) {
                         wp_die(esc_html__('Legacy compression mode is not available on this system. Please select Fast mode or contact your hosting provider.', 'wp-vault'), esc_html__('Error', 'wp-vault'), array('back_link' => true));
                         return;
                     }
-                    
+
                     update_option('wpv_compression_mode', $wpvault_compression_mode);
                     error_log('[WP Vault] Compression Mode: ' . $wpvault_compression_mode);
                 }
@@ -841,7 +841,7 @@ class WP_Vault
             // Don't redirect if already on settings page or if compression mode is already set
             $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
             $compression_mode = get_option('wpv_compression_mode', '');
-            
+
             if ($page !== 'wp-vault' && empty($compression_mode)) {
                 // Redirect to settings tab with compression mode required parameter
                 wp_safe_redirect(admin_url('admin.php?page=wp-vault&tab=settings&compression_mode_required=true'));
@@ -863,7 +863,7 @@ class WP_Vault
         // Don't show on settings page (it has its own message)
         $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
         $tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : '';
-        
+
         if ($page === 'wp-vault' && $tab === 'settings') {
             return;
         }
@@ -2095,16 +2095,18 @@ class WP_Vault
             }
 
             // Also try to find and delete component files by pattern (in case manifest is missing)
-            $patterns = array(
-                $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
-                $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
-                $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
-                $backup_dir . '*-' . $backup_id . '-*.tar.gz',
-                $backup_dir . '*-' . $backup_id . '-*.sql.gz',
-            );
+            $components = array('database', 'themes', 'plugins', 'uploads', 'wp-content');
+            $patterns = array();
+            foreach ($components as $component) {
+                $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.tar.gz';
+                $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.sql.gz';
+            }
+            $patterns[] = $backup_dir . 'backup-' . $backup_id . '-*.tar.gz';
+            $patterns[] = $backup_dir . '*-' . $backup_id . '-*.tar.gz';
+            $patterns[] = $backup_dir . '*-' . $backup_id . '-*.sql.gz';
 
             foreach ($patterns as $pattern) {
-                $files = glob($pattern, GLOB_BRACE);
+                $files = glob($pattern);
                 if ($files && is_array($files)) {
                     foreach ($files as $file) {
                         if (file_exists($file)) {
@@ -2146,13 +2148,15 @@ class WP_Vault
                 $has_local_files = true;
             } else {
                 // Check if any component files exist
-                $patterns = array(
-                    $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
-                    $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
-                    $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
-                );
+                $components = array('database', 'themes', 'plugins', 'uploads', 'wp-content');
+                $patterns = array();
+                foreach ($components as $component) {
+                    $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.tar.gz';
+                    $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.sql.gz';
+                }
+                $patterns[] = $backup_dir . 'backup-' . $backup_id . '-*.tar.gz';
                 foreach ($patterns as $pattern) {
-                    $files = glob($pattern, GLOB_BRACE);
+                    $files = glob($pattern);
                     if ($files && is_array($files) && count($files) > 0) {
                         $has_local_files = true;
                         break;
@@ -2674,13 +2678,15 @@ class WP_Vault
             }
 
             // Also try to delete component files
-            $patterns = array(
-                $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
-                $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
-                $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
-            );
+            $components = array('database', 'themes', 'plugins', 'uploads', 'wp-content');
+            $patterns = array();
+            foreach ($components as $component) {
+                $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.tar.gz';
+                $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.sql.gz';
+            }
+            $patterns[] = $backup_dir . 'backup-' . $backup_id . '-*.tar.gz';
             foreach ($patterns as $pattern) {
-                $files = glob($pattern, GLOB_BRACE);
+                $files = glob($pattern);
                 if ($files && is_array($files)) {
                     foreach ($files as $file) {
                         if (file_exists($file)) {
@@ -2868,7 +2874,14 @@ class WP_Vault
         // If no manifest or no files found, look for component files or single backup file
         if (empty($files_to_zip)) {
             // Look for component files
-            $component_files = glob($backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz', GLOB_BRACE);
+            $components = array('database', 'themes', 'plugins', 'uploads', 'wp-content');
+            $component_files = array();
+            foreach ($components as $component) {
+                $files = glob($backup_dir . $component . '-' . $backup_id . '-*.tar.gz');
+                if ($files && is_array($files)) {
+                    $component_files = array_merge($component_files, $files);
+                }
+            }
             foreach ($component_files as $file) {
                 if (file_exists($file)) {
                     $files_to_zip[] = array(
@@ -3650,6 +3663,41 @@ class WP_Vault
             wp_send_json_success($result);
         } else {
             wp_send_json_error($result);
+        }
+    }
+
+    /**
+     * AJAX: Check connection to WP Vault Cloud
+     */
+    public function ajax_check_connection()
+    {
+        check_ajax_referer('wp-vault', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Unauthorized'));
+            return;
+        }
+
+        $force = isset($_POST['force']) && $_POST['force'] === 'true';
+
+        require_once WP_VAULT_PLUGIN_DIR . 'includes/class-wp-vault-api.php';
+        $api = new WP_Vault_API();
+
+        $result = $api->check_connection($force);
+
+        if ($result['success'] && $result['connected']) {
+            wp_send_json_success(array(
+                'connected' => true,
+                'status' => $result['status'],
+                'last_check' => $result['last_check'],
+                'cached' => isset($result['cached']) ? $result['cached'] : false,
+            ));
+        } else {
+            wp_send_json_error(array(
+                'connected' => false,
+                'status' => isset($result['status']) ? $result['status'] : 'disconnected',
+                'error' => isset($result['error']) ? $result['error'] : 'Connection check failed',
+            ));
         }
     }
 

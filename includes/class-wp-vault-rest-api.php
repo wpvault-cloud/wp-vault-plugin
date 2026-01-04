@@ -61,30 +61,51 @@ class WP_Vault_REST_API
         }
         */
 
-        // Get Authorization header
+        $token = null;
+
+        // Method 1: Get Authorization header
+        // Some servers (especially with ?rest_route=) don't forward Authorization header properly
+        // Try get_header() first, then fallback to $_SERVER['HTTP_AUTHORIZATION']
         $auth_header = $request->get_header('Authorization');
 
-        if (!$auth_header) {
+        // Fallback for servers that strip Authorization header (common with ?rest_route= format)
+        if (!$auth_header && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
+        }
+
+        // Also check REDIRECT_HTTP_AUTHORIZATION (some Apache configurations use this)
+        if (!$auth_header && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+            $auth_header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+        }
+
+        // Extract Bearer token from header if available
+        if ($auth_header && preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
+            $token = $matches[1];
+        }
+
+        // Method 2: Fallback to site_token in request body (for servers that strip headers)
+        if (!$token) {
+            $params = $request->get_json_params();
+            if (isset($params['site_token']) && !empty($params['site_token'])) {
+                $token = sanitize_text_field($params['site_token']);
+            }
+        }
+
+        // Method 3: Fallback to site_token in query string
+        if (!$token) {
+            $query_token = $request->get_param('site_token');
+            if ($query_token) {
+                $token = sanitize_text_field($query_token);
+            }
+        }
+
+        if (!$token) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                // error_log('[WP Vault REST API] Missing Authorization header');
+                // error_log('[WP Vault REST API] Missing Authorization - no header, body token, or query token found');
             }
             return new \WP_Error(
                 'missing_auth',
-                'Authorization header required',
-                array('status' => 401)
-            );
-        }
-
-        // Extract Bearer token
-        if (preg_match('/Bearer\s+(.*)$/i', $auth_header, $matches)) {
-            $token = $matches[1];
-        } else {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                // error_log('[WP Vault REST API] Invalid authorization format');
-            }
-            return new \WP_Error(
-                'invalid_auth',
-                'Invalid authorization format. Use: Bearer {token}',
+                'Authorization required. Provide Bearer token in header, site_token in body, or site_token in query string.',
                 array('status' => 401)
             );
         }

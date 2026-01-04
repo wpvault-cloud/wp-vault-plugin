@@ -594,13 +594,15 @@ function wpvault_display_backups_tab()
 
                                     // If no manifest, check for component files
                                     if (!$has_local) {
-                                        $patterns = array(
-                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
-                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
-                                            $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
-                                        );
+                                        $components = array('database', 'themes', 'plugins', 'uploads', 'wp-content');
+                                        $patterns = array();
+                                        foreach ($components as $component) {
+                                            $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.tar.gz';
+                                            $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.sql.gz';
+                                        }
+                                        $patterns[] = $backup_dir . 'backup-' . $backup_id . '-*.tar.gz';
                                         foreach ($patterns as $pattern) {
-                                            $files = glob($pattern, GLOB_BRACE);
+                                            $files = glob($pattern);
                                             if ($files && is_array($files) && count($files) > 0) {
                                                 $has_local = true;
                                                 break;
@@ -674,13 +676,15 @@ function wpvault_display_backups_tab()
                                         $has_local_files = true;
                                     } else {
                                         // Check if any component files exist
-                                        $patterns = array(
-                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.tar.gz',
-                                            $backup_dir . '{database,themes,plugins,uploads,wp-content}-' . $backup_id . '-*.sql.gz',
-                                            $backup_dir . 'backup-' . $backup_id . '-*.tar.gz',
-                                        );
+                                        $components = array('database', 'themes', 'plugins', 'uploads', 'wp-content');
+                                        $patterns = array();
+                                        foreach ($components as $component) {
+                                            $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.tar.gz';
+                                            $patterns[] = $backup_dir . $component . '-' . $backup_id . '-*.sql.gz';
+                                        }
+                                        $patterns[] = $backup_dir . 'backup-' . $backup_id . '-*.tar.gz';
                                         foreach ($patterns as $pattern) {
-                                            $files = glob($pattern, GLOB_BRACE);
+                                            $files = glob($pattern);
                                             if ($files && is_array($files) && count($files) > 0) {
                                                 $has_local_files = true;
                                                 break;
